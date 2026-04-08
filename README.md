@@ -53,6 +53,17 @@ install.bat
 
 ## Usage
 
+### Before You Start — Back Up Your MASSO Controller
+
+Before using this add-in for the first time, create a backup of your MASSO controller settings to USB:
+
+1. Insert a USB drive into the MASSO controller
+2. On the MASSO touchscreen: **F1 Setup > Save & Load Calibration Settings > Save to file**
+3. This creates the `MASSO/Machine Settings/` folder on the USB with your current tool table and machine settings
+4. Keep this USB — the add-in will read from it, back it up automatically, and write the updated tool table to it
+
+> **Important:** The add-in requires the `MASSO/Machine Settings/` folder structure on the USB. This is only created by the MASSO controller's "Save to file" function.
+
 ### 1. Open the Add-in
 
 Navigate to **Manufacture > Milling** tab. You'll find the **MASSO Tool Sync** button in the **MASSO** panel on the toolbar. Click it to open the sync dialog.
