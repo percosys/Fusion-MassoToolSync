@@ -29,14 +29,14 @@ Version 0.1.0
 **macOS:**
 ```bash
 git clone https://github.com/percosys/Fusion-MassoToolSync.git
-cd MassoToolSync
+cd Fusion-MassoToolSync
 ./install.sh
 ```
 
 **Windows:**
 ```cmd
 git clone https://github.com/percosys/Fusion-MassoToolSync.git
-cd MassoToolSync
+cd Fusion-MassoToolSync
 install.bat
 ```
 
