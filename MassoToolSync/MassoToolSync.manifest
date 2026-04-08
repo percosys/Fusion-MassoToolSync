@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion",
+  "type": "addin",
+  "id": "masso-tool-sync-f360",
+  "author": "fusion2masso",
+  "description": {
+    "": "Sync Fusion 360 tool libraries to MASSO G3 CNC tool tables"
+  },
+  "version": "0.1.0",
+  "runOnStartup": true,
+  "supportedOS": "windows|mac",
+  "editEnabled": true
+}

@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "fusion2masso"
+version = "0.1.0"
+description = "Sync Fusion 360 tool libraries to MASSO G3 Touch .htg tool tables"
+requires-python = ">=3.10"
+
+[project.scripts]
+fusion2masso = "fusion2masso.cli:main"
