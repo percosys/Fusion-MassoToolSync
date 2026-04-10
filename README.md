@@ -14,7 +14,7 @@ Version 0.1.0
 - **Auto-detect firmware** — finds the correct `.htg` filename on the USB automatically
 - **Live merge preview** — see exactly what will change before committing
 - **Smart merge** — preserves Z offsets from probed tools, detects added/updated/replaced/unchanged tools
-- **Auto tool numbering** — assigns sequential T1-T104 numbers (MASSO's max) for manufacturer libraries that ship with all tools set to T1
+- **Auto tool numbering** — assigns sequential T1-T100 numbers (MASSO's max; T101-T104 are reserved for multi-spindle heads) for manufacturer libraries that ship with all tools set to T1
 - **Unit conversion** — automatically converts between inch and metric tool libraries
 - **Fusion library sync** — optionally creates a MASSO-synced copy of the library in Fusion with updated tool numbers so posted G-code matches
 - **Slot assignment** — configurable: match tool number or leave unassigned
@@ -79,7 +79,7 @@ Choose **Fusion Library** to pick from your local Fusion 360 tool libraries, or 
 | Option | Description |
 |--------|-------------|
 | **MASSO Units** | Set to match your controller (mm or inches) |
-| **Tool Numbering** | Auto-assign T1-T104 sequentially, or use the Fusion post-process numbers |
+| **Tool Numbering** | Auto-assign T1-T100 sequentially, or use the Fusion post-process numbers |
 | **Z Offset Mode** | **Zero all** (safest, re-probe everything), **Preserve MASSO** (keep probed offsets), or **Use Fusion body length** (rough starting offset from tool geometry) |
 | **Slot Assignment** | **Match tool number** (T1=Slot 1) or **Leave unassigned** (set manually on controller) |
 

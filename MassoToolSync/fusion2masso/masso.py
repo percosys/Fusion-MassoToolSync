@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 
 RECORD_SIZE = 64
 NUM_RECORDS = 105       # total records in the .htg file (T0-T104)
-MAX_TOOL_NUM = 104      # highest usable tool number (T1-T104; T0 is reserved)
+MAX_TOOL_NUM = 100      # highest usable tool number (T1-T100; T0 is reserved,
+                        # T101-T104 are reserved for multi-spindle heads)
 FILE_SIZE = RECORD_SIZE * NUM_RECORDS
 NAME_LEN = 40
 EMPTY_SLOT = 0x00FF  # big-endian uint16 sentinel for "no slot"
