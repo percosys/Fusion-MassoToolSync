@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 13px;
+        margin: 12px;
+        background: #f0f0f0;
+        color: #333;
+    }
+    h2 {
+        font-size: 16px;
+        margin: 0 0 12px 0;
+        color: #1a5276;
+        border-bottom: 2px solid #2980b9;
+        padding-bottom: 4px;
+    }
+    .section {
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 10px 14px;
+        margin-bottom: 10px;
+    }
+    .section-title {
+        font-weight: bold;
+        font-size: 13px;
+        color: #2c3e50;
+        margin-bottom: 8px;
+    }
+    table.form {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    table.form td {
+        padding: 3px 4px;
+        vertical-align: middle;
+    }
+    table.form td.label {
+        width: 170px;
+        text-align: right;
+        padding-right: 10px;
+        font-weight: 600;
+        color: #555;
+        white-space: nowrap;
+    }
+    table.form td.field {
+        width: auto;
+    }
+    select, input[type="text"] {
+        width: 100%;
+        padding: 4px 6px;
+        border: 1px solid #aaa;
+        border-radius: 3px;
+        font-size: 13px;
+        box-sizing: border-box;
+    }
+    select {
+        background: #fff;
+    }
+    .status-box {
+        padding: 6px 10px;
+        border-radius: 3px;
+        margin-top: 6px;
+        font-size: 12px;
+    }
+    .status-gray   { background: #eee; color: #888; }
+    .status-green  { background: #d4edda; color: #155724; }
+    .status-orange { background: #fff3cd; color: #856404; }
+    .status-red    { background: #f8d7da; color: #721c24; }
+
+    .preview-box {
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 10px 14px;
+        margin-bottom: 10px;
+        max-height: 220px;
+        overflow-y: auto;
+        font-size: 12px;
+        line-height: 1.6;
+    }
+    .preview-box .added    { color: #28a745; }
+    .preview-box .updated  { color: #0056b3; }
+    .preview-box .replaced { color: #e67e22; }
+    .preview-box .skipped  { color: #999; }
+    .preview-box .warning  { color: #e67e22; font-style: italic; }
+
+    .btn-row {
+        text-align: right;
+        margin-top: 8px;
+    }
+    button {
+        padding: 6px 20px;
+        font-size: 13px;
+        border: 1px solid #888;
+        border-radius: 3px;
+        cursor: pointer;
+        margin-left: 6px;
+    }
+    button#ButtonOK {
+        background: #2980b9;
+        color: #fff;
+        border-color: #2471a3;
+        font-weight: bold;
+    }
+    button#ButtonOK:hover { background: #2471a3; }
+    button#ButtonCancel {
+        background: #e0e0e0;
+    }
+    button#ButtonCancel:hover { background: #d0d0d0; }
+    .note {
+        font-size: 11px;
+        color: #888;
+        margin-top: 4px;
+    }
+</style>
+</head>
+<body>
+
+<h2>MASSO Tool Sync for VCarve Pro</h2>
+
+<!-- Tool Source -->
+<div class="section">
+    <div class="section-title">Tool Library Source</div>
+    <table class="form">
+        <tr>
+            <td class="label">Source:</td>
+            <td class="field">
+                <select id="SourceMode">
+                    <option value="vcarve_db">VCarve Tool Database</option>
+                    <option value="fusion_file">Fusion 360 Library File</option>
+                    <option value="csv_file">CSV File (Name,Diameter,Unit)</option>
+                </select>
+            </td>
+        </tr>
+        <tr>
+            <td class="label">File Path:</td>
+            <td class="field">
+                <input type="text" id="FilePath" value="" placeholder="Browse to select file..." />
+            </td>
+        </tr>
+        <tr>
+            <td class="label">VCarve DB Status:</td>
+            <td class="field">
+                <span id="DbStatus">Checking...</span>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- MASSO Configuration -->
+<div class="section">
+    <div class="section-title">MASSO Configuration</div>
+    <table class="form">
+        <tr>
+            <td class="label">MASSO Units:</td>
+            <td class="field">
+                <select id="MassoUnits">
+                    <option value="mm" selected>Millimeters (mm)</option>
+                    <option value="in">Inches (in)</option>
+                </select>
+            </td>
+        </tr>
+        <tr>
+            <td class="label">Tool Numbering:</td>
+            <td class="field">
+                <select id="NumberingMode">
+                    <option value="auto" selected>Auto-assign (T1, T2, T3...)</option>
+                    <option value="vcarve">Use source tool numbers</option>
+                </select>
+            </td>
+        </tr>
+        <tr>
+            <td class="label">Z Offset Mode:</td>
+            <td class="field">
+                <select id="ZOffsetMode">
+                    <option value="preserve" selected>Preserve MASSO Z offsets</option>
+                    <option value="zero">Zero all Z offsets</option>
+                    <option value="tool_length">Use tool body length</option>
+                </select>
+            </td>
+        </tr>
+        <tr>
+            <td class="label">Slot Assignment:</td>
+            <td class="field">
+                <select id="SlotMode">
+                    <option value="match" selected>Match tool number (T1=Slot 1)</option>
+                    <option value="unassigned">Leave unassigned</option>
+                </select>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- MASSO USB Drive -->
+<div class="section">
+    <div class="section-title">MASSO USB Drive</div>
+    <table class="form">
+        <tr>
+            <td class="label">USB Drive:</td>
+            <td class="field">
+                <select id="UsbDrive">
+                    <option value="">-- Select USB Drive --</option>
+                </select>
+            </td>
+        </tr>
+        <tr>
+            <td class="label"></td>
+            <td class="field">
+                <div id="UsbStatus" class="status-box status-gray">
+                    Select a MASSO USB drive...
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td class="label">Backup Location:</td>
+            <td class="field">
+                <input type="text" id="BackupPath" value="" />
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- Merge Preview -->
+<div class="section-title" style="margin-bottom: 4px;">Merge Preview</div>
+<div class="preview-box" id="PreviewContent">
+    <i>Select a tool source and USB drive, then click Sync to see the merge preview.</i>
+</div>
+
+<p class="note">
+    After syncing: safely eject USB, plug into MASSO controller,
+    F1 Setup &gt; Save &amp; Load Calibration Settings &gt; Load from file,
+    reboot MASSO, then probe Z on new/changed tools.
+</p>
+
+<!-- Buttons -->
+<div class="btn-row">
+    <button id="ButtonCancel">Cancel</button>
+    <button id="ButtonOK">Sync to USB</button>
+</div>
+
+</body>
+</html>
