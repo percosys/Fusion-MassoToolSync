@@ -1,3 +1,4 @@
+-- VECTRIC LUA SCRIPT
 -- vcarve_db.lua  --  Read tools from VCarve Pro's SQLite tool database (.vtdb)
 --                     and from Fusion 360 library files (.tools / .json).
 

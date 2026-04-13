@@ -1,3 +1,4 @@
+-- VECTRIC LUA SCRIPT
 -- masso_htg.lua  --  Reader/writer for the MASSO G3 Touch .htg tool table binary format.
 -- Port of MassoToolSync/fusion2masso/masso.py to Lua.
 --

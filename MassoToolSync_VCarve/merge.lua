@@ -1,3 +1,4 @@
+-- VECTRIC LUA SCRIPT
 -- merge.lua  --  Merge source tools into a MASSO tool table.
 -- Port of MassoToolSync/fusion2masso/mapping.py to Lua.
 

@@ -1,3 +1,4 @@
+-- VECTRIC LUA SCRIPT
 -- MassoToolSync.lua  --  VCarve Pro Gadget: Sync tool libraries to MASSO G3 CNC controller.
 --
 -- This is a VCarve Pro gadget that reads tools from VCarve's tool database

@@ -1,3 +1,4 @@
+-- VECTRIC LUA SCRIPT
 -- config.lua  --  Constants for the MASSO Tool Sync VCarve Pro gadget.
 
 local M = {}

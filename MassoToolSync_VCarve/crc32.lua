@@ -1,3 +1,4 @@
+-- VECTRIC LUA SCRIPT
 -- crc32.lua  --  Pure Lua CRC32 (ISO 3309 / ITU-T V.42).
 -- Matches Python's zlib.crc32() output.
 -- Compatible with Lua 5.1, 5.2, 5.3, and 5.4.
