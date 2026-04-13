@@ -28,31 +28,44 @@ Version 0.1.0
 
 ## Installation
 
-### Quick Install (Recommended)
+### Automatic Installer (Recommended)
+
+From the repository root (on Windows inside the Parallels VM, or a native
+Windows machine):
+
+**Double-click:** `install-vcarve.bat`
+
+Or from a PowerShell prompt:
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+The installer will:
+1. Auto-detect your VCarve Pro gadgets folder
+2. Download the latest `sqlite3.exe` from sqlite.org
+3. Copy the gadget and `sqlite3.exe` into place
+
+Then restart VCarve Pro and open **Gadgets > MassoToolSync**.
+
+**Skip the SQLite download** (if you only plan to use CSV or Fusion file
+sources):
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -SkipSQLite
+```
+
+### Manual Install
 
 1. Download the `MassoToolSync_VCarve` folder from this repository
 2. Copy it to your VCarve Pro gadgets directory:
    - **Default:** `C:\Users\Public\Documents\Vectric Files\Gadgets\VCarve Pro V{XX}\`
-   - Or find it in VCarve: **Gadgets** menu shows the gadgets location
-3. Restart VCarve Pro
-4. The gadget will appear in the **Gadgets** menu under **Tool Management**
+3. (Optional) Download `sqlite3.exe` from [sqlite.org/download.html](https://sqlite.org/download.html)
+   (look for `sqlite-tools-win-x64-*.zip`) and place it in
+   `MassoToolSync_VCarve\resources\sqlite3.exe`
+4. Restart VCarve Pro
+5. The gadget will appear in the **Gadgets** menu as **MassoToolSync**
 
-### Alternative: .vgadget Package
-
-If a `.vgadget` file is provided:
-1. Double-click the `.vgadget` file, or
-2. In VCarve Pro: **Gadgets > Install Gadget** and browse to the file
-
-### SQLite3 Setup (for VCarve Database Reading)
-
-To read tools directly from VCarve's tool database, the gadget needs `sqlite3.exe`:
-
-1. Download from [sqlite.org/download.html](https://sqlite.org/download.html) (look for "sqlite-tools-win-x64")
-2. Either:
-   - Place `sqlite3.exe` in the gadget's `resources/` folder, or
-   - Add the folder containing `sqlite3.exe` to your system PATH
-
-If `sqlite3.exe` is not available, use the **Fusion 360 Library File** or **CSV File** source options instead.
+> If `sqlite3.exe` is not available, you can still use the gadget with the
+> **Fusion 360 Library File** or **CSV File** source options.
 
 ## Usage
 

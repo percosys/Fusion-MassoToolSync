@@ -11,10 +11,16 @@
 -- Module loading
 -- ---------------------------------------------------------------------------
 --
+-- VCarve Pro scans the gadget folder for .lua files and creates a menu
+-- entry for each one, which means helper modules with .lua extension show
+-- up as bogus menu items. To avoid this we rename all helper modules to
+-- .luax (the Vectric convention for "library" files that aren't gadgets)
+-- and teach Lua's require() how to find them.
+--
 -- VCarve Pro's gadget search path (package.path) only includes the parent
 -- "Gadgets\VCarve Pro V12.5\" folder, NOT the specific gadget subfolder.
 -- We need to add our own folder to package.path BEFORE any require() calls
--- so that config.lua, crc32.lua, etc. can be found.
+-- so that config.luax, crc32.luax, etc. can be found.
 --
 -- debug.getinfo() with "@"-prefixed source gives us the running script's
 -- filesystem path, which works regardless of how VCarve invokes the gadget
@@ -29,7 +35,9 @@ do
     end
     script_dir = source:match("(.+)[/\\]")
     if script_dir then
-        package.path = script_dir .. "\\?.lua;"
+        package.path = script_dir .. "\\?.luax;"
+                    .. script_dir .. "/?.luax;"
+                    .. script_dir .. "\\?.lua;"
                     .. script_dir .. "/?.lua;"
                     .. (package.path or "")
     end
