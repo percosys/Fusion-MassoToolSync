@@ -275,7 +275,7 @@ local function run_gadget()
     local htm_content = htm_file:read("*a")
     htm_file:close()
 
-    local dialog = HTML_Dialog(true, htm_content, 720, 740,
+    local dialog = HTML_Dialog(true, htm_content, 820, 780,
         "MASSO Tool Sync v" .. config.VERSION)
 
     -- Source configuration
