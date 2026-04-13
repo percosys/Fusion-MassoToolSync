@@ -261,8 +261,22 @@ local function run_gadget()
     end
 
     -- ---- Build the dialog ----
+    -- Load the HTML file contents and pass as an inline string. VCarve's
+    -- HTML_Dialog takes (is_inline_html, content, width, height, title). We
+    -- always load the file ourselves so it doesn't matter how VCarve's build
+    -- interprets the boolean -- we pass raw HTML either way.
     local htm_path = script_dir .. "\\MassoToolSync.htm"
-    local dialog = HTML_Dialog(true, htm_path, 720, 740, "MASSO Tool Sync v" .. config.VERSION)
+    local htm_file, htm_err = io.open(htm_path, "r")
+    if not htm_file then
+        DisplayMessageBox("Cannot find dialog HTML file:\n" .. htm_path ..
+            "\n\n" .. tostring(htm_err))
+        return false
+    end
+    local htm_content = htm_file:read("*a")
+    htm_file:close()
+
+    local dialog = HTML_Dialog(true, htm_content, 720, 740,
+        "MASSO Tool Sync v" .. config.VERSION)
 
     -- Source configuration
     dialog:AddDropDownList("SourceMode", "vcarve_db")
