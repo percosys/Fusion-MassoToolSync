@@ -10,18 +10,36 @@
 -- ---------------------------------------------------------------------------
 -- Module loading
 -- ---------------------------------------------------------------------------
+--
+-- VCarve Pro's gadget search path (package.path) only includes the parent
+-- "Gadgets\VCarve Pro V12.5\" folder, NOT the specific gadget subfolder.
+-- We need to add our own folder to package.path BEFORE any require() calls
+-- so that config.lua, crc32.lua, etc. can be found.
+--
+-- debug.getinfo() with "@"-prefixed source gives us the running script's
+-- filesystem path, which works regardless of how VCarve invokes the gadget
+-- (Gadget_Action vs main(script_path)).
 
--- Ensure modules in the gadget folder are found by require()
 local script_dir
-
-local function setup_paths(path)
-    if path then
-        script_dir = path:match("(.+)[/\\]")
+do
+    local info = debug.getinfo(1, "S")
+    local source = info and info.source or ""
+    if source:sub(1, 1) == "@" then
+        source = source:sub(2)
     end
+    script_dir = source:match("(.+)[/\\]")
     if script_dir then
-        package.path = script_dir .. "\\?.lua;" .. script_dir .. "/?.lua;" .. package.path
+        package.path = script_dir .. "\\?.lua;"
+                    .. script_dir .. "/?.lua;"
+                    .. (package.path or "")
     end
 end
+
+-- Load all modules now that package.path is set up.
+local config    = require("config")
+local masso     = require("masso_htg")
+local merge_mod = require("merge")
+local vcarve_db = require("vcarve_db")
 
 -- ---------------------------------------------------------------------------
 -- Gadget metadata (for VCarve Gadgets menu)
@@ -217,14 +235,7 @@ end
 -- Main gadget logic
 -- ---------------------------------------------------------------------------
 
-local function run_gadget(script_path)
-    setup_paths(script_path)
-
-    local config    = require("config")
-    local masso     = require("masso_htg")
-    local merge_mod = require("merge")
-    local vcarve_db = require("vcarve_db")
-
+local function run_gadget()
     -- ---- Detect VCarve tool database ----
     local db_path = vcarve_db.get_db_path()
     local db_status
@@ -479,14 +490,14 @@ end
 -- ---------------------------------------------------------------------------
 
 function Gadget_Action()
-    local ok, err = pcall(run_gadget, nil)
+    local ok, err = pcall(run_gadget)
     if not ok then
         DisplayMessageBox("MASSO Tool Sync Error:\n" .. tostring(err))
     end
 end
 
 function main(script_path)
-    local ok, err = pcall(run_gadget, script_path)
+    local ok, err = pcall(run_gadget)
     if not ok then
         DisplayMessageBox("MASSO Tool Sync Error:\n" .. tostring(err))
     end
