@@ -16,8 +16,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$GadgetSource = "$PSScriptRoot\MassoToolSync_VCarve",
-    [string]$SQLiteVersion = "3460000",  # SQLite 3.46.0, change if newer is desired
+    [string]$GadgetSource = "",
+    [string]$SQLiteVersion = "3460000",  # Fallback if no local zip is found
     [switch]$SkipSQLite
 )
 
@@ -27,6 +27,32 @@ function Write-Step  { param($msg) Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-OK    { param($msg) Write-Host "    $msg" -ForegroundColor Green }
 function Write-Warn2 { param($msg) Write-Host "    $msg" -ForegroundColor Yellow }
 function Write-Err2  { param($msg) Write-Host "    $msg" -ForegroundColor Red }
+
+# ---------------------------------------------------------------------------
+# Resolve the gadget source path
+#
+# Try multiple strategies because $PSScriptRoot can be empty depending on
+# how the script is invoked (dot-sourced, param defaults, older PowerShell).
+# ---------------------------------------------------------------------------
+
+if (-not $GadgetSource) {
+    $scriptDir = $PSScriptRoot
+    if (-not $scriptDir) {
+        $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue
+    }
+    if (-not $scriptDir) {
+        $scriptDir = (Get-Location).Path
+    }
+    $GadgetSource = Join-Path $scriptDir "MassoToolSync_VCarve"
+}
+
+# If it still doesn't exist, try the current working directory
+if (-not (Test-Path $GadgetSource)) {
+    $fallback = Join-Path (Get-Location).Path "MassoToolSync_VCarve"
+    if (Test-Path $fallback) {
+        $GadgetSource = $fallback
+    }
+}
 
 # ---------------------------------------------------------------------------
 # 1. Locate the VCarve Pro gadgets folder
@@ -101,20 +127,41 @@ if ($SkipSQLite) {
     Write-Step "SQLite3.exe already present, skipping download"
     Write-OK "Found: $sqliteTarget"
 } else {
-    Write-Step "Downloading SQLite3 CLI tools from sqlite.org..."
+    # Check if the user already has a sqlite-tools zip locally (in script dir
+    # or current directory) and use that instead of re-downloading.
+    $searchDirs = @((Split-Path -Parent $GadgetSource), (Get-Location).Path)
+    $localZip = $null
+    foreach ($dir in $searchDirs) {
+        if ($dir) {
+            $found = Get-ChildItem -Path $dir -Filter "sqlite-tools-win-x64-*.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $localZip = $found.FullName; break }
+        }
+    }
+
+    if ($localZip) {
+        Write-Step "Found local SQLite zip, using it instead of downloading"
+        Write-OK "Source: $localZip"
+    } else {
+        Write-Step "Downloading SQLite3 CLI tools from sqlite.org..."
+    }
 
     $sqliteUrl = "https://www.sqlite.org/2024/sqlite-tools-win-x64-$SQLiteVersion.zip"
     $tempZip   = Join-Path $env:TEMP "sqlite-tools-$SQLiteVersion.zip"
     $tempDir   = Join-Path $env:TEMP "sqlite-tools-$SQLiteVersion"
 
     try {
-        Write-OK "URL: $sqliteUrl"
+        if ($localZip) {
+            Copy-Item $localZip $tempZip -Force
+            Write-OK "Copied local zip to: $tempZip"
+        } else {
+            Write-OK "URL: $sqliteUrl"
 
-        # Force TLS 1.2 for older PowerShell versions
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            # Force TLS 1.2 for older PowerShell versions
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-        Invoke-WebRequest -Uri $sqliteUrl -OutFile $tempZip -UseBasicParsing
-        Write-OK "Downloaded to: $tempZip"
+            Invoke-WebRequest -Uri $sqliteUrl -OutFile $tempZip -UseBasicParsing
+            Write-OK "Downloaded to: $tempZip"
+        }
 
         if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
         Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
