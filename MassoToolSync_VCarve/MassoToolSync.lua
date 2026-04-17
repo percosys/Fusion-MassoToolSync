@@ -71,23 +71,35 @@ end
 -- ---------------------------------------------------------------------------
 
 local function detect_usb_drives()
-    -- Fast scan: check each drive letter D-Z for the MASSO folder.
-    -- Each io.open() on a non-existent drive letter returns immediately
-    -- with no delay, so the whole scan takes a few milliseconds even
-    -- when no drives are mapped. Much faster than WMIC (which can take
-    -- 5-30 seconds). We only surface drives that actually have the
-    -- MASSO/Machine Settings/ folder, since those are the only ones
-    -- that can be synced to anyway.
+    -- One PowerShell call that returns each non-network, non-C: drive
+    -- letter. Under Parallels Desktop, probing unmapped letters or
+    -- Mac shared folders as drive letters (Z: etc.) triggers slow
+    -- network-style probes across the VM boundary -- 23 letters can
+    -- take multiple seconds. This call returns only real local and
+    -- removable drives in ~500ms.
     local drives = {}
-    for letter in ("DEFGHIJKLMNOPQRSTUVWXYZ"):gmatch(".") do
-        local root = letter .. ":\\"
-        local marker = io.open(root .. "MASSO\\Machine Settings\\.", "r")
-        if marker then
-            marker:close()
-            drives[#drives + 1] = {
-                path = root,
-                label = letter .. ": (MASSO detected)",
-            }
+    local ps_cmd =
+        'powershell -NoProfile -NonInteractive -Command ' ..
+        '"[System.IO.DriveInfo]::GetDrives() | ' ..
+        'Where-Object { $_.DriveType -eq \'Removable\' -or $_.DriveType -eq \'Fixed\' } | ' ..
+        'Where-Object { $_.Name -ne \'C:\\\' } | ' ..
+        'ForEach-Object { $_.Name }" 2>nul'
+
+    local handle = io.popen(ps_cmd)
+    if handle then
+        local output = handle:read("*a")
+        handle:close()
+        -- Each line is "D:\", "E:\", etc. Check each for MASSO folder.
+        for letter in output:gmatch("(%a):\\") do
+            local root = letter:upper() .. ":\\"
+            local marker = io.open(root .. "MASSO\\Machine Settings\\.", "r")
+            if marker then
+                marker:close()
+                drives[#drives + 1] = {
+                    path = root,
+                    label = letter:upper() .. ": (MASSO detected)",
+                }
+            end
         end
     end
     return drives
@@ -232,7 +244,29 @@ end
 -- Main gadget logic
 -- ---------------------------------------------------------------------------
 
+-- Simple timing helper for diagnosing startup slowness. Writes a log
+-- line to timing.log in the gadget folder every time a step completes.
+local function make_timer()
+    local clock = os.clock
+    local start = clock()
+    local last = start
+    local log = {}
+    return {
+        step = function(name)
+            local now = clock()
+            log[#log + 1] = string.format("%-30s  %6.0f ms  (total %6.0f ms)",
+                name, (now - last) * 1000, (now - start) * 1000)
+            last = now
+        end,
+        dump = function()
+            return table.concat(log, "\n")
+        end,
+    }
+end
+
 local function run_gadget()
+    local timer = make_timer()
+
     -- Show a progress bar during initialization so the user doesn't
     -- wonder if the gadget is hung. Each I/O call (sqlite3 query, USB
     -- scan) takes a beat; without feedback the 300-800ms adds up to
@@ -243,9 +277,11 @@ local function run_gadget()
         local ok, pb = pcall(ProgressBar, "MASSO Tool Sync -- initializing...", 0)
         if ok then progress = pb end
     end
+    timer.step("progress bar")
 
     -- ---- Detect VCarve tool database ----
     local db_path = vcarve_db.get_db_path()
+    timer.step("get_db_path")
     local db_status
     local tool_groups = {}
     local schema_dump = nil
@@ -264,9 +300,11 @@ local function run_gadget()
     else
         db_status = "Not found (use File source instead)"
     end
+    timer.step("list_groups")
 
     -- ---- Detect USB drives ----
     local usb_drives = detect_usb_drives()
+    timer.step("detect_usb_drives")
 
     -- ---- Load saved settings from registry ----
     local saved_backup = ""
@@ -279,6 +317,7 @@ local function run_gadget()
     else
         saved_backup = os.getenv("USERPROFILE") .. "\\Documents\\MASSO Backups"
     end
+    timer.step("read registry")
 
     -- ---- Build the dialog ----
     -- Load the HTML file contents and pass as an inline string. VCarve's
@@ -294,6 +333,7 @@ local function run_gadget()
     end
     local htm_content = htm_file:read("*a")
     htm_file:close()
+    timer.step("read HTML file")
 
     local dialog = HTML_Dialog(true, htm_content, 820, 780,
         "MASSO Tool Sync v" .. config.VERSION)
@@ -355,6 +395,7 @@ local function run_gadget()
     dialog:AddLabelField("UsbStatus", "Select a MASSO USB drive...")
     dialog:AddTextField("BackupPath", saved_backup)
     dialog:AddDirectoryPicker("BrowseBackup", "BackupPath", true)
+    timer.step("dialog setup (before ShowDialog)")
     local preview_initial = "Select a tool source and USB drive, then click Sync."
     if schema_dump then
         -- HTML-escape angle brackets so <tags> don't break rendering
@@ -365,6 +406,14 @@ local function run_gadget()
             .. escaped
             .. "</pre>"
     end
+
+    -- Append startup timings to the preview so we can diagnose slow steps.
+    preview_initial = preview_initial ..
+        "<br><br><b>Startup timings</b> (for diagnosing slow startup):<br>" ..
+        "<pre style=\"white-space:pre-wrap;font-size:13px;\">" ..
+        timer.dump() ..
+        "</pre>"
+
     dialog:AddLabelField("PreviewContent", preview_initial)
 
     -- ---- Show the dialog ----
