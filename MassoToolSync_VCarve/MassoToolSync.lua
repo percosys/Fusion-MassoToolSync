@@ -71,34 +71,23 @@ end
 -- ---------------------------------------------------------------------------
 
 local function detect_usb_drives()
+    -- Fast scan: check each drive letter D-Z for the MASSO folder.
+    -- Each io.open() on a non-existent drive letter returns immediately
+    -- with no delay, so the whole scan takes a few milliseconds even
+    -- when no drives are mapped. Much faster than WMIC (which can take
+    -- 5-30 seconds). We only surface drives that actually have the
+    -- MASSO/Machine Settings/ folder, since those are the only ones
+    -- that can be synced to anyway.
     local drives = {}
-    -- Use WMIC to list removable drives
-    local handle = io.popen('wmic logicaldisk where "DriveType=2" get DeviceID,VolumeName /format:csv 2>nul')
-    if handle then
-        local output = handle:read("*a")
-        handle:close()
-        for line in output:gmatch("[^\r\n]+") do
-            local letter = line:match(",(%a:),")
-            if not letter then
-                letter = line:match(",(%a:)")
-            end
-            if letter then
-                local vol = line:match(",(%a:),(.*)$")
-                if not vol or vol == "" then vol = "Removable" end
-                drives[#drives + 1] = { path = letter .. "\\", label = letter .. " (" .. vol .. ")" }
-            end
-        end
-    end
-
-    -- Fallback: scan common drive letters if WMIC returned nothing
-    if #drives == 0 then
-        for _, letter in ipairs({"D","E","F","G","H","I","J","K","L"}) do
-            local test_path = letter .. ":\\MASSO"
-            local f = io.open(test_path .. "\\Machine Settings\\.", "r")
-            if f then
-                f:close()
-                drives[#drives + 1] = { path = letter .. ":\\", label = letter .. ": (MASSO detected)" }
-            end
+    for letter in ("DEFGHIJKLMNOPQRSTUVWXYZ"):gmatch(".") do
+        local root = letter .. ":\\"
+        local marker = io.open(root .. "MASSO\\Machine Settings\\.", "r")
+        if marker then
+            marker:close()
+            drives[#drives + 1] = {
+                path = root,
+                label = letter .. ": (MASSO detected)",
+            }
         end
     end
     return drives
@@ -244,6 +233,17 @@ end
 -- ---------------------------------------------------------------------------
 
 local function run_gadget()
+    -- Show a progress bar during initialization so the user doesn't
+    -- wonder if the gadget is hung. Each I/O call (sqlite3 query, USB
+    -- scan) takes a beat; without feedback the 300-800ms adds up to
+    -- "is this broken?". ProgressBar auto-closes when its local goes
+    -- out of scope at the end of this function.
+    local progress = nil
+    if ProgressBar then
+        local ok, pb = pcall(ProgressBar, "MASSO Tool Sync -- initializing...", 0)
+        if ok then progress = pb end
+    end
+
     -- ---- Detect VCarve tool database ----
     local db_path = vcarve_db.get_db_path()
     local db_status
