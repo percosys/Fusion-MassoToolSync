@@ -120,11 +120,25 @@ local function collect_descendant_ids(groups_by_parent, start_id)
     return ids
 end
 
+--- Quote a UUID string for use in a SQL IN (...) list.
+local function sql_quote(s)
+    return "'" .. tostring(s):gsub("'", "''") .. "'"
+end
+
 --- Read tools from the VCarve .vtdb database using sqlite3 CLI.
+--
+-- Real VCarve schema (V12.5 confirmed):
+--   tool_tree_entry.tool_geometry_id -> tool_geometry.id  (when non-NULL)
+--   tool_entity.tool_geometry_id -> tool_geometry.id
+--   tool_entity.tool_cutting_data_id -> tool_cutting_data.id (tool_number lives here)
+-- Because tool_entity has a composite PK (geometry, material, machine),
+-- a single geometry can have many cutting_data rows. We aggregate with
+-- MIN(tool_number) to pick one representative number per geometry.
+--
 -- @param db_path     Path to tools.vtdb
 -- @param gadget_dir  Path to gadget directory (for bundled sqlite3)
--- @param group_id    Optional: filter by group ID (nil = all tools).
---                    If set, includes tools in that group and all sub-groups.
+-- @param group_id    Optional: filter by group UUID (nil = all tools).
+--                    When set, includes tools in that group and all sub-groups.
 -- @return tools      Array of tool tables, or nil + error message
 function M.read_vcarve_db(db_path, gadget_dir, group_id)
     local sqlite3 = find_sqlite3(gadget_dir)
@@ -132,10 +146,10 @@ function M.read_vcarve_db(db_path, gadget_dir, group_id)
         return nil, "sqlite3.exe not found. Please install SQLite CLI tools or place sqlite3.exe in the gadget's resources folder."
     end
 
-    -- If group_id is provided, collect all descendant group IDs so we can
+    -- If group_id is provided, collect all descendant group UUIDs so we can
     -- filter tools that are anywhere in the selected subtree.
     local id_filter = nil
-    if group_id then
+    if group_id and group_id ~= "" then
         local groups, err = M.list_groups(db_path, gadget_dir)
         if not groups or #groups == 0 then
             return nil, "Could not enumerate groups for filtering: " .. tostring(err)
@@ -151,49 +165,36 @@ function M.read_vcarve_db(db_path, gadget_dir, group_id)
         local descendants = collect_descendant_ids(by_parent, group_id)
         local id_list = {}
         for id in pairs(descendants) do
-            id_list[#id_list + 1] = tostring(id)
+            id_list[#id_list + 1] = sql_quote(id)
         end
         id_filter = table.concat(id_list, ",")
     end
 
-    -- Query to extract tool data. When filtering by group we add a JOIN on
-    -- tool_tree_entry so only tools in the selected subtree are returned.
-    local sql
+    -- Build the query. We start from tool_tree_entry so we can filter by
+    -- parent_group_id. We LEFT JOIN tool_entity/tool_cutting_data so tools
+    -- without cutting data still appear (they'll just get auto-numbered).
+    local where_clause = ""
     if id_filter then
-        sql = string.format([[
-SELECT
-    tg.name_format,
-    tg.diameter,
-    tg.flute_length,
-    tg.overall_length,
-    tg.units,
-    tg.tool_type,
-    tcd.tool_number,
-    te.uuid
-FROM tool_entity te
-JOIN tool_geometry tg ON te.geometry_id = tg.id
-JOIN tool_cutting_data tcd ON te.cutting_data_id = tcd.id
-JOIN tool_tree_entry tte ON tte.entity_id = te.id
-WHERE tte.parent_id IN (%s)
-ORDER BY tcd.tool_number, tg.name_format
-]], id_filter)
-    else
-        sql = [[
-SELECT
-    tg.name_format,
-    tg.diameter,
-    tg.flute_length,
-    tg.overall_length,
-    tg.units,
-    tg.tool_type,
-    tcd.tool_number,
-    te.uuid
-FROM tool_entity te
-JOIN tool_geometry tg ON te.geometry_id = tg.id
-JOIN tool_cutting_data tcd ON te.cutting_data_id = tcd.id
-ORDER BY tcd.tool_number, tg.name_format
-]]
+        where_clause = " WHERE tte.parent_group_id IN (" .. id_filter .. ")"
     end
+
+    local sql = [[
+SELECT
+    COALESCE(tte.name, tg.name_format) AS display_name,
+    tg.diameter,
+    tg.flute_length,
+    tg.units,
+    tg.tool_type,
+    MIN(tcd.tool_number) AS tool_number,
+    tg.id AS tool_id
+FROM tool_tree_entry tte
+JOIN tool_geometry tg ON tte.tool_geometry_id = tg.id
+LEFT JOIN tool_entity te ON te.tool_geometry_id = tg.id
+LEFT JOIN tool_cutting_data tcd ON tcd.id = te.tool_cutting_data_id
+]] .. where_clause .. [[
+GROUP BY tg.id, tte.id
+ORDER BY tool_number, display_name
+]]
 
     -- Escape single quotes in db_path for shell
     local safe_path = db_path:gsub("'", "''")
@@ -236,17 +237,17 @@ ORDER BY tcd.tool_number, tg.name_format
     for i = 2, #lines do
         local fields = parse_csv_line(lines[i])
         local tool = {
-            name        = fields[col_idx["name_format"] or 1] or "unnamed",
+            name        = fields[col_idx["display_name"] or 1] or "unnamed",
             diameter    = tonumber(fields[col_idx["diameter"] or 2]) or 0,
             body_length = tonumber(fields[col_idx["flute_length"] or 3]) or 0,
             unit        = "mm",  -- will be decoded below
-            number      = tonumber(fields[col_idx["tool_number"] or 7]),
-            id          = fields[col_idx["uuid"] or 8] or "",
-            tool_type   = tonumber(fields[col_idx["tool_type"] or 6]) or 1,
+            number      = tonumber(fields[col_idx["tool_number"] or 6]),
+            id          = fields[col_idx["tool_id"] or 7] or "",
+            tool_type   = tonumber(fields[col_idx["tool_type"] or 5]) or 1,
         }
 
         -- Decode units: VCarve typically uses 1=mm, 0=inches
-        local units_raw = tonumber(fields[col_idx["units"] or 5])
+        local units_raw = tonumber(fields[col_idx["units"] or 4])
         if units_raw == 0 then
             tool.unit = "in"
         end
@@ -377,12 +378,17 @@ local function get_columns(db_path, sqlite3, table_name)
 end
 
 --- List tool groups/folders in the VCarve database.
--- Returns array of {id, name, tool_count, parent_id} sorted by name.
+-- Returns array of {id, name, path, parent_id} sorted by path.
+--
+-- VCarve schema (confirmed against V12.5):
+--   tool_tree_entry(id TEXT PK, parent_group_id TEXT, name TEXT,
+--                   tool_geometry_id TEXT, ...)
+-- Folders have tool_geometry_id = NULL; tool entries have it set.
 function M.list_groups(db_path, gadget_dir)
     local sqlite3 = find_sqlite3(gadget_dir)
     if not sqlite3 then return {}, "sqlite3.exe not found" end
 
-    -- Probe tool_tree_entry columns to figure out the schema
+    -- Probe tool_tree_entry columns to confirm the schema
     local tree_cols = get_columns(db_path, sqlite3, "tool_tree_entry")
     if #tree_cols == 0 then
         return {}, "tool_tree_entry table not found; schema may differ"
@@ -391,25 +397,28 @@ function M.list_groups(db_path, gadget_dir)
     local has_col = {}
     for _, c in ipairs(tree_cols) do has_col[c:lower()] = c end
 
-    -- The "parent pointer" column differs across VCarve versions
-    local parent_col = has_col["parent_id"]
-                    or has_col["parent_group_id"]
+    -- Parent pointer column
+    local parent_col = has_col["parent_group_id"]
+                    or has_col["parent_id"]
                     or has_col["parent"]
-                    or "parent_id"
+    if not parent_col then
+        return {}, "tool_tree_entry has no parent pointer column"
+    end
 
-    -- The "entity pointer" column (null => folder, non-null => tool link)
-    local entity_col = has_col["entity_id"]
-                    or has_col["tool_entity_id"]
-                    or "entity_id"
+    -- Geometry pointer (null => folder, non-null => tool entry)
+    local geom_col = has_col["tool_geometry_id"]
+                  or has_col["entity_id"]   -- older schema
+                  or has_col["tool_entity_id"]
+    if not geom_col then
+        return {}, "tool_tree_entry has no tool/geometry pointer column"
+    end
 
-    local name_col = has_col["name"]
-                  or has_col["title"]
-                  or "name"
+    local name_col = has_col["name"] or has_col["title"] or "name"
 
-    -- List groups (folders): rows where entity_id IS NULL
+    -- Folders are rows where the geometry pointer is NULL
     local sql = string.format(
         "SELECT id, %s, %s FROM tool_tree_entry WHERE %s IS NULL ORDER BY %s",
-        name_col, parent_col, entity_col, name_col
+        name_col, parent_col, geom_col, name_col
     )
 
     local output, err = M.run_sql(db_path, sqlite3, sql)
@@ -423,12 +432,14 @@ function M.list_groups(db_path, gadget_dir)
         if first then first = false
         else
             local fields = parse_csv_line(line)
-            local id = tonumber(fields[1])
-            if id then
+            local id = fields[1]
+            if id and id ~= "" then
+                local parent = fields[3]
+                if parent == "" then parent = nil end
                 groups[#groups + 1] = {
-                    id = id,
+                    id = id,                      -- TEXT UUID in VCarve
                     name = fields[2] or "(unnamed)",
-                    parent_id = tonumber(fields[3]),
+                    parent_id = parent,
                 }
             end
         end
