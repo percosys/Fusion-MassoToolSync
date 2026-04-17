@@ -262,62 +262,8 @@ local function run_gadget()
     local timer = make_timer()
 
     -- ---- Detect VCarve tool database ----
-    -- (done before the progress bar so we can choose a message that
-    -- tells the user what's about to happen)
     local db_path = vcarve_db.get_db_path()
     timer.step("get_db_path")
-
-    -- Pre-flight: is the tool-groups cache fresh? If so, we'll be fast
-    -- (cache hit -> ~5 ms). If not, we're about to do a slow sqlite3
-    -- query (~5 s on Parallels). Show a specific message in each case
-    -- so the user knows what to expect.
-    local cache_fresh = false
-    if db_path then
-        cache_fresh = vcarve_db.cache_is_fresh(script_dir, db_path)
-    end
-
-    -- When the cache is stale, launch an auxiliary process that shows
-    -- a "please wait" window while we do the slow sqlite3 query. We
-    -- use mshta.exe (Windows' HTML application host) rather than
-    -- PowerShell because mshta starts in ~100-300 ms whereas a fresh
-    -- PowerShell with WinForms takes 1-3 s -- by the time PowerShell
-    -- finished loading the .NET runtime, sqlite3 was already done and
-    -- the dialog barely flashed. mshta has no runtime to cold-start so
-    -- the dialog appears almost immediately.
-    --
-    -- The HTA polls for a sentinel flag file and closes as soon as it
-    -- appears. Lua writes the flag after list_groups() returns.
-    local rebuild_flag = nil
-    if db_path and not cache_fresh then
-        rebuild_flag = script_dir .. "\\rebuild_done.flag"
-        os.remove(rebuild_flag)  -- clear any stale flag from a crashed prior run
-        local notify_hta = script_dir .. "\\rebuild_notify.hta"
-
-        -- Pass the flag file path via URL querystring instead of as a
-        -- command-line arg -- location.search is reliable across IE/HTA
-        -- versions; window.commandLine is flaky.
-        -- Convert backslashes to forward slashes for the URL; URL-encode
-        -- spaces and percent signs to be safe.
-        local function url_encode_path(p)
-            return p:gsub("\\", "/"):gsub("%%", "%%25"):gsub(" ", "%%20")
-        end
-        local hta_url = "file:///" .. url_encode_path(notify_hta)
-                     .. "?flag=" .. url_encode_path(rebuild_flag)
-
-        -- Fire-and-forget: `start ""` detaches the child so os.execute
-        -- returns immediately and we can proceed to the slow work.
-        os.execute('start "" mshta.exe "' .. hta_url .. '"')
-    end
-
-    -- ProgressBar is still shown as a best-effort secondary indicator.
-    local progress_msg = cache_fresh and "MASSO Tool Sync -- loading..."
-                         or "MASSO Tool Sync -- rebuilding cache..."
-    local progress = nil
-    if ProgressBar then
-        local ok, pb = pcall(ProgressBar, progress_msg, 1)
-        if ok then progress = pb end
-    end
-    timer.step("progress bar")
 
     local db_status
     local tool_groups = {}
@@ -338,14 +284,6 @@ local function run_gadget()
         db_status = "Not found (use File source instead)"
     end
     timer.step("list_groups [" .. tostring(vcarve_db.last_cache_status or "?") .. "]")
-
-    -- Signal the "please wait" PowerShell window to close. We write the
-    -- flag file after the slow query returns; the notification process
-    -- polls for the file every 150 ms and closes its dialog on sight.
-    if rebuild_flag then
-        local f = io.open(rebuild_flag, "w")
-        if f then f:write("done") f:close() end
-    end
 
     -- ---- Detect USB drives ----
     local usb_drives = detect_usb_drives()
