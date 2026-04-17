@@ -287,10 +287,20 @@ local function run_gadget()
             "(takes ~5 seconds; this only runs when VCarve tools have changed)..."
     end
 
+    -- VCarve's ProgressBar takes (text, mode). Mode 1 is indeterminate
+    -- (marquee spinner) which is what we want for an operation of
+    -- unknown duration. Creating the progress bar immediately isn't
+    -- always enough to get it painted before a blocking subprocess call,
+    -- so we also poke common update methods (Update, SetText) which may
+    -- force a repaint on some VCarve versions.
     local progress = nil
     if ProgressBar then
-        local ok, pb = pcall(ProgressBar, progress_msg, 0)
-        if ok then progress = pb end
+        local ok, pb = pcall(ProgressBar, progress_msg, 1)
+        if ok and pb then
+            progress = pb
+            if pb.Update then pcall(function() pb:Update(0) end) end
+            if pb.SetText then pcall(function() pb:SetText(progress_msg) end) end
+        end
     end
     timer.step("progress bar")
 
