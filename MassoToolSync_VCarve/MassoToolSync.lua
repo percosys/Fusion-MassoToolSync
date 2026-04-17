@@ -287,7 +287,7 @@ local function run_gadget()
     else
         db_status = "Not found (use File source instead)"
     end
-    timer.step("list_groups")
+    timer.step("list_groups [" .. tostring(vcarve_db.last_cache_status or "?") .. "]")
 
     -- ---- Detect USB drives ----
     local usb_drives = detect_usb_drives()

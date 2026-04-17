@@ -452,6 +452,11 @@ function M.invalidate_groups_cache(gadget_dir)
     os.remove(cache_path(gadget_dir))
 end
 
+-- After list_groups completes this module-level variable records how the
+-- groups were obtained ("cache hit", "cache miss -> saved", "cache miss",
+-- or "no cache attempted"). Used for startup timing diagnostics.
+M.last_cache_status = "unknown"
+
 --- List tool groups/folders in the VCarve database.
 -- Returns array of {id, name, path, parent_id} sorted by path.
 -- Results are cached in the gadget folder and reused when the .vtdb file
@@ -466,7 +471,13 @@ function M.list_groups(db_path, gadget_dir)
     -- Try cache first -- this is the hot path and should return in <10ms.
     if gadget_dir then
         local cached = load_cache(gadget_dir, db_path)
-        if cached then return cached end
+        if cached then
+            M.last_cache_status = "cache HIT"
+            return cached
+        end
+        M.last_cache_status = "cache MISS (no file or stale)"
+    else
+        M.last_cache_status = "cache skipped (no gadget_dir)"
     end
 
     local sqlite3 = find_sqlite3(gadget_dir)
@@ -524,7 +535,12 @@ ORDER BY name
 
     -- Persist to the cache so the next gadget invocation is instant.
     if gadget_dir and #groups > 0 then
-        save_cache(gadget_dir, db_path, groups)
+        local ok = pcall(save_cache, gadget_dir, db_path, groups)
+        if ok then
+            M.last_cache_status = (M.last_cache_status or "") .. " -> cache saved"
+        else
+            M.last_cache_status = (M.last_cache_status or "") .. " -> cache save FAILED"
+        end
     end
 
     return groups
