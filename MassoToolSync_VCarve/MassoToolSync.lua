@@ -247,8 +247,17 @@ local function run_gadget()
     -- ---- Detect VCarve tool database ----
     local db_path = vcarve_db.get_db_path()
     local db_status
+    local tool_groups = {}
     if db_path then
-        db_status = "Found: " .. db_path
+        local groups, group_err = vcarve_db.list_groups(db_path, script_dir)
+        if groups and #groups > 0 then
+            tool_groups = groups
+            db_status = string.format("Found %d tool groups in: %s", #groups, db_path)
+        elseif group_err then
+            db_status = "Found DB but could not list groups: " .. db_path
+        else
+            db_status = "Found: " .. db_path
+        end
     else
         db_status = "Not found (use File source instead)"
     end
@@ -293,6 +302,18 @@ local function run_gadget()
     end
     dialog:AddTextField("FilePath", "")
     dialog:AddLabelField("DbStatus", db_status)
+
+    -- Tool Group dropdown (populated from tool_tree_entry)
+    -- The display value is the group path ("Parent > Child"); the mapping
+    -- from name to ID is kept in Lua for lookup after the dialog closes.
+    dialog:AddDropDownList("ToolGroup", "")
+    dialog:AddDropDownListValue("ToolGroup", "")  -- empty = all tools
+    local group_name_to_id = {}
+    for _, g in ipairs(tool_groups) do
+        local label = g.path or g.name
+        dialog:AddDropDownListValue("ToolGroup", label)
+        group_name_to_id[label] = g.id
+    end
 
     -- File picker for source files
     dialog:AddFilePicker(true, "BrowseFile", "FilePath", true)
@@ -341,6 +362,7 @@ local function run_gadget()
     -- ---- Read dialog values ----
     local source_mode   = dialog:GetDropDownListValue("SourceMode")
     local file_path     = dialog:GetTextField("FilePath")
+    local tool_group    = dialog:GetDropDownListValue("ToolGroup")
     local masso_units   = dialog:GetDropDownListValue("MassoUnits")
     local numbering     = dialog:GetDropDownListValue("NumberingMode")
     local z_mode        = dialog:GetDropDownListValue("ZOffsetMode")
@@ -356,7 +378,11 @@ local function run_gadget()
             DisplayMessageBox("VCarve tool database not found.\nPlease use 'Fusion 360 Library File' or 'CSV File' source instead.")
             return false
         end
-        source_tools, err = vcarve_db.read_vcarve_db(db_path, script_dir)
+        local group_id = nil
+        if tool_group and tool_group ~= "" then
+            group_id = group_name_to_id[tool_group]
+        end
+        source_tools, err = vcarve_db.read_vcarve_db(db_path, script_dir, group_id)
     elseif source_mode == "fusion_file" then
         if file_path == "" then
             DisplayMessageBox("Please select a Fusion 360 library file (.tools or .json).")

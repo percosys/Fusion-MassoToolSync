@@ -101,20 +101,84 @@ local function parse_csv_line(line)
     return fields
 end
 
+--- Recursively collect all descendant group IDs from a starting group.
+local function collect_descendant_ids(groups_by_parent, start_id)
+    local ids = { [start_id] = true }
+    local stack = { start_id }
+    while #stack > 0 do
+        local current = table.remove(stack)
+        local children = groups_by_parent[current]
+        if children then
+            for _, child in ipairs(children) do
+                if not ids[child] then
+                    ids[child] = true
+                    table.insert(stack, child)
+                end
+            end
+        end
+    end
+    return ids
+end
+
 --- Read tools from the VCarve .vtdb database using sqlite3 CLI.
 -- @param db_path     Path to tools.vtdb
 -- @param gadget_dir  Path to gadget directory (for bundled sqlite3)
--- @param group_name  Optional: filter by group/folder name (nil = all tools)
+-- @param group_id    Optional: filter by group ID (nil = all tools).
+--                    If set, includes tools in that group and all sub-groups.
 -- @return tools      Array of tool tables, or nil + error message
-function M.read_vcarve_db(db_path, gadget_dir, group_name)
+function M.read_vcarve_db(db_path, gadget_dir, group_id)
     local sqlite3 = find_sqlite3(gadget_dir)
     if not sqlite3 then
         return nil, "sqlite3.exe not found. Please install SQLite CLI tools or place sqlite3.exe in the gadget's resources folder."
     end
 
-    -- Query to extract tool data
-    -- We join through the entity/geometry/cutting_data tables
-    local sql = [[
+    -- If group_id is provided, collect all descendant group IDs so we can
+    -- filter tools that are anywhere in the selected subtree.
+    local id_filter = nil
+    if group_id then
+        local groups, err = M.list_groups(db_path, gadget_dir)
+        if not groups or #groups == 0 then
+            return nil, "Could not enumerate groups for filtering: " .. tostring(err)
+        end
+        local by_parent = {}
+        for _, g in ipairs(groups) do
+            local p = g.parent_id
+            if p then
+                by_parent[p] = by_parent[p] or {}
+                table.insert(by_parent[p], g.id)
+            end
+        end
+        local descendants = collect_descendant_ids(by_parent, group_id)
+        local id_list = {}
+        for id in pairs(descendants) do
+            id_list[#id_list + 1] = tostring(id)
+        end
+        id_filter = table.concat(id_list, ",")
+    end
+
+    -- Query to extract tool data. When filtering by group we add a JOIN on
+    -- tool_tree_entry so only tools in the selected subtree are returned.
+    local sql
+    if id_filter then
+        sql = string.format([[
+SELECT
+    tg.name_format,
+    tg.diameter,
+    tg.flute_length,
+    tg.overall_length,
+    tg.units,
+    tg.tool_type,
+    tcd.tool_number,
+    te.uuid
+FROM tool_entity te
+JOIN tool_geometry tg ON te.geometry_id = tg.id
+JOIN tool_cutting_data tcd ON te.cutting_data_id = tcd.id
+JOIN tool_tree_entry tte ON tte.entity_id = te.id
+WHERE tte.parent_id IN (%s)
+ORDER BY tcd.tool_number, tg.name_format
+]], id_filter)
+    else
+        sql = [[
 SELECT
     tg.name_format,
     tg.diameter,
@@ -129,6 +193,7 @@ JOIN tool_geometry tg ON te.geometry_id = tg.id
 JOIN tool_cutting_data tcd ON te.cutting_data_id = tcd.id
 ORDER BY tcd.tool_number, tg.name_format
 ]]
+    end
 
     -- Escape single quotes in db_path for shell
     local safe_path = db_path:gsub("'", "''")
@@ -260,35 +325,131 @@ ORDER BY tcd.tool_number
     return tools
 end
 
---- List tool groups/folders in the VCarve database.
-function M.list_groups(db_path, gadget_dir)
-    local sqlite3 = find_sqlite3(gadget_dir)
-    if not sqlite3 then return {} end
-
-    local sql = "SELECT id, name FROM tool_tree_entry WHERE entity_id IS NULL ORDER BY name"
+--- Run a raw SQL query and return the CSV output (with header).
+-- @return text (string) on success, or nil + error message
+function M.run_sql(db_path, sqlite3, sql)
+    local safe_sql = sql:gsub("\n", " "):gsub('"', '\\"')
     local cmd = string.format(
         '%s -csv -header "%s" "%s" 2>&1',
-        sqlite3, db_path, sql
+        sqlite3, db_path, safe_sql
     )
-
     local handle = io.popen(cmd)
-    if not handle then return {} end
+    if not handle then return nil, "Failed to run sqlite3" end
     local output = handle:read("*a")
     handle:close()
+
+    if output:match("^Error:") or output:match("^Parse error") or output:match("^Runtime error") then
+        return nil, output
+    end
+    return output
+end
+
+--- Dump the schema of the VCarve DB for debugging.
+-- Returns a string describing all tables and their columns.
+function M.dump_schema(db_path, gadget_dir)
+    local sqlite3 = find_sqlite3(gadget_dir)
+    if not sqlite3 then return "sqlite3.exe not found" end
+
+    local safe_path = db_path:gsub("'", "''")
+    local cmd = string.format('%s "%s" ".schema" 2>&1', sqlite3, safe_path)
+    local handle = io.popen(cmd)
+    if not handle then return "Failed to run sqlite3" end
+    local output = handle:read("*a")
+    handle:close()
+    return output
+end
+
+--- Discover columns in a table.
+local function get_columns(db_path, sqlite3, table_name)
+    local output = M.run_sql(db_path, sqlite3, "PRAGMA table_info(" .. table_name .. ")")
+    if not output then return {} end
+    local cols = {}
+    local first = true
+    for line in output:gmatch("[^\r\n]+") do
+        if first then first = false
+        else
+            local fields = parse_csv_line(line)
+            -- PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
+            if fields[2] then cols[#cols + 1] = fields[2] end
+        end
+    end
+    return cols
+end
+
+--- List tool groups/folders in the VCarve database.
+-- Returns array of {id, name, tool_count, parent_id} sorted by name.
+function M.list_groups(db_path, gadget_dir)
+    local sqlite3 = find_sqlite3(gadget_dir)
+    if not sqlite3 then return {}, "sqlite3.exe not found" end
+
+    -- Probe tool_tree_entry columns to figure out the schema
+    local tree_cols = get_columns(db_path, sqlite3, "tool_tree_entry")
+    if #tree_cols == 0 then
+        return {}, "tool_tree_entry table not found; schema may differ"
+    end
+
+    local has_col = {}
+    for _, c in ipairs(tree_cols) do has_col[c:lower()] = c end
+
+    -- The "parent pointer" column differs across VCarve versions
+    local parent_col = has_col["parent_id"]
+                    or has_col["parent_group_id"]
+                    or has_col["parent"]
+                    or "parent_id"
+
+    -- The "entity pointer" column (null => folder, non-null => tool link)
+    local entity_col = has_col["entity_id"]
+                    or has_col["tool_entity_id"]
+                    or "entity_id"
+
+    local name_col = has_col["name"]
+                  or has_col["title"]
+                  or "name"
+
+    -- List groups (folders): rows where entity_id IS NULL
+    local sql = string.format(
+        "SELECT id, %s, %s FROM tool_tree_entry WHERE %s IS NULL ORDER BY %s",
+        name_col, parent_col, entity_col, name_col
+    )
+
+    local output, err = M.run_sql(db_path, sqlite3, sql)
+    if not output then
+        return {}, "Could not list groups: " .. tostring(err)
+    end
 
     local groups = {}
     local first = true
     for line in output:gmatch("[^\r\n]+") do
-        if first then
-            first = false  -- skip header
+        if first then first = false
         else
             local fields = parse_csv_line(line)
-            groups[#groups + 1] = {
-                id   = tonumber(fields[1]) or 0,
-                name = fields[2] or "Unknown",
-            }
+            local id = tonumber(fields[1])
+            if id then
+                groups[#groups + 1] = {
+                    id = id,
+                    name = fields[2] or "(unnamed)",
+                    parent_id = tonumber(fields[3]),
+                }
+            end
         end
     end
+
+    -- Build full paths "Parent > Child" for clearer display
+    local by_id = {}
+    for _, g in ipairs(groups) do by_id[g.id] = g end
+    for _, g in ipairs(groups) do
+        local parts = { g.name }
+        local p = g.parent_id
+        local safety = 0
+        while p and by_id[p] and safety < 20 do
+            table.insert(parts, 1, by_id[p].name)
+            p = by_id[p].parent_id
+            safety = safety + 1
+        end
+        g.path = table.concat(parts, " > ")
+    end
+
+    table.sort(groups, function(a, b) return (a.path or a.name) < (b.path or b.name) end)
     return groups
 end
 
