@@ -40,14 +40,14 @@ function M.get_db_path()
     return nil
 end
 
---- Find the sqlite3 executable.
+--- Find the sqlite3 executable. Returns the raw path (no quotes).
 -- Checks gadget resources folder first, then system PATH.
 local function find_sqlite3(gadget_dir)
     -- Check bundled copy in gadget's resources folder
     if gadget_dir then
         local bundled = gadget_dir .. "\\resources\\sqlite3.exe"
         local f = io.open(bundled, "r")
-        if f then f:close(); return '"' .. bundled .. '"' end
+        if f then f:close(); return bundled end
     end
 
     -- Check system PATH
@@ -56,11 +56,22 @@ local function find_sqlite3(gadget_dir)
         local result = handle:read("*l")
         handle:close()
         if result and result ~= "" then
-            return '"' .. result:match("^%s*(.-)%s*$") .. '"'
+            return result:match("^%s*(.-)%s*$")
         end
     end
 
     return nil
+end
+
+--- Build a Windows-safe command string for io.popen.
+--
+-- io.popen on Windows runs `cmd /c <cmd>`. When <cmd> contains more than
+-- two quote characters, cmd.exe strips the FIRST and LAST " and leaves
+-- the middle ones intact -- which mangles "exe" arg "arg". Workaround:
+-- wrap the whole thing in an extra pair of quotes so cmd strips those
+-- and the inner quoting survives.
+local function win_cmd(exe_path, args_str)
+    return '""' .. exe_path .. '" ' .. args_str .. '"'
 end
 
 --- Parse a line of CSV output (handles quoted fields).
@@ -196,12 +207,11 @@ GROUP BY tg.id, tte.id
 ORDER BY tool_number, display_name
 ]]
 
-    -- Escape single quotes in db_path for shell
-    local safe_path = db_path:gsub("'", "''")
-    local cmd = string.format(
-        '%s -csv -header "%s" "%s" 2>&1',
-        sqlite3, safe_path, sql:gsub("\n", " "):gsub('"', '\\"')
+    local args = string.format(
+        '-csv -header "%s" "%s" 2>&1',
+        db_path, sql:gsub("\n", " "):gsub('"', '\\"')
     )
+    local cmd = win_cmd(sqlite3, args)
 
     local handle = io.popen(cmd)
     if not handle then
@@ -261,10 +271,8 @@ end
 --- Fallback query with alternative column names for different VCarve versions.
 function M._read_vcarve_db_fallback(db_path, sqlite3)
     -- Try to discover the actual schema first
-    local schema_cmd = string.format(
-        '%s "%s" ".schema tool_geometry" 2>&1',
-        sqlite3, db_path
-    )
+    local schema_cmd = win_cmd(sqlite3,
+        string.format('"%s" ".schema tool_geometry" 2>&1', db_path))
     local handle = io.popen(schema_cmd)
     if not handle then
         return nil, "Failed to read database schema"
@@ -284,10 +292,10 @@ JOIN tool_cutting_data tcd ON te.cutting_data_id = tcd.id
 ORDER BY tcd.tool_number
 ]]
 
-    local cmd = string.format(
-        '%s -csv -header "%s" "%s" 2>&1',
-        sqlite3, db_path, sql:gsub("\n", " "):gsub('"', '\\"')
-    )
+    local cmd = win_cmd(sqlite3, string.format(
+        '-csv -header "%s" "%s" 2>&1',
+        db_path, sql:gsub("\n", " "):gsub('"', '\\"')
+    ))
 
     handle = io.popen(cmd)
     if not handle then
@@ -330,10 +338,9 @@ end
 -- @return text (string) on success, or nil + error message
 function M.run_sql(db_path, sqlite3, sql)
     local safe_sql = sql:gsub("\n", " "):gsub('"', '\\"')
-    local cmd = string.format(
-        '%s -csv -header "%s" "%s" 2>&1',
-        sqlite3, db_path, safe_sql
-    )
+    local cmd = win_cmd(sqlite3, string.format(
+        '-csv -header "%s" "%s" 2>&1', db_path, safe_sql
+    ))
     local handle = io.popen(cmd)
     if not handle then return nil, "Failed to run sqlite3" end
     local output = handle:read("*a")
@@ -351,8 +358,7 @@ function M.dump_schema(db_path, gadget_dir)
     local sqlite3 = find_sqlite3(gadget_dir)
     if not sqlite3 then return "sqlite3.exe not found" end
 
-    local safe_path = db_path:gsub("'", "''")
-    local cmd = string.format('%s "%s" ".schema" 2>&1', sqlite3, safe_path)
+    local cmd = win_cmd(sqlite3, string.format('"%s" ".schema" 2>&1', db_path))
     local handle = io.popen(cmd)
     if not handle then return "Failed to run sqlite3" end
     local output = handle:read("*a")
@@ -383,47 +389,23 @@ end
 -- VCarve schema (confirmed against V12.5):
 --   tool_tree_entry(id TEXT PK, parent_group_id TEXT, name TEXT,
 --                   tool_geometry_id TEXT, ...)
--- Folders have tool_geometry_id = NULL; tool entries have it set.
+-- Folders are rows where tool_geometry_id IS NULL.
 function M.list_groups(db_path, gadget_dir)
     local sqlite3 = find_sqlite3(gadget_dir)
     if not sqlite3 then return {}, "sqlite3.exe not found" end
 
-    -- Probe tool_tree_entry columns to confirm the schema
-    local tree_cols = get_columns(db_path, sqlite3, "tool_tree_entry")
-    if #tree_cols == 0 then
-        return {}, "tool_tree_entry table not found; schema may differ"
-    end
-
-    local has_col = {}
-    for _, c in ipairs(tree_cols) do has_col[c:lower()] = c end
-
-    -- Parent pointer column
-    local parent_col = has_col["parent_group_id"]
-                    or has_col["parent_id"]
-                    or has_col["parent"]
-    if not parent_col then
-        return {}, "tool_tree_entry has no parent pointer column"
-    end
-
-    -- Geometry pointer (null => folder, non-null => tool entry)
-    local geom_col = has_col["tool_geometry_id"]
-                  or has_col["entity_id"]   -- older schema
-                  or has_col["tool_entity_id"]
-    if not geom_col then
-        return {}, "tool_tree_entry has no tool/geometry pointer column"
-    end
-
-    local name_col = has_col["name"] or has_col["title"] or "name"
-
-    -- Folders are rows where the geometry pointer is NULL
-    local sql = string.format(
-        "SELECT id, %s, %s FROM tool_tree_entry WHERE %s IS NULL ORDER BY %s",
-        name_col, parent_col, geom_col, name_col
-    )
+    -- Use the known schema directly. If the query fails, the error message
+    -- from sqlite3 will tell us which column/table is missing.
+    local sql = [[
+SELECT id, name, parent_group_id
+FROM tool_tree_entry
+WHERE tool_geometry_id IS NULL
+ORDER BY name
+]]
 
     local output, err = M.run_sql(db_path, sqlite3, sql)
     if not output then
-        return {}, "Could not list groups: " .. tostring(err)
+        return {}, "Query failed: " .. tostring(err)
     end
 
     local groups = {}
