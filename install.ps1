@@ -225,6 +225,143 @@ if ($savedCache) {
 }
 
 # ---------------------------------------------------------------------------
+# 4.5 Prime the tool-groups cache
+#
+# The first-time sqlite3 query for tool groups takes ~5 seconds on
+# Parallels (subprocess spawn overhead). We can eliminate that cold-start
+# penalty by priming the cache right now from the installer, which
+# already has sqlite3.exe in hand. The gadget will then find a valid
+# cache on the very first open.
+# ---------------------------------------------------------------------------
+
+function Escape-LuaString {
+    param([string]$s)
+    if ($null -eq $s) { return 'nil' }
+    $escaped = $s -replace '\\', '\\\\' -replace '"', '\"' -replace "`r", '\r' -replace "`n", '\n'
+    return '"' + $escaped + '"'
+}
+
+function Prime-GroupsCache {
+    param(
+        [string]$SqliteExe,
+        [string]$DbPath,
+        [string]$CachePath
+    )
+
+    try {
+        $sql = "SELECT id, name, parent_group_id FROM tool_tree_entry WHERE tool_geometry_id IS NULL ORDER BY name"
+        $csvOutput = & $SqliteExe -csv -header $DbPath $sql 2>&1 | Out-String
+
+        if ($LASTEXITCODE -ne 0 -or -not $csvOutput) {
+            Write-Warn2 "sqlite3 query returned no output; skipping cache prime"
+            return $false
+        }
+
+        $rows = $csvOutput | ConvertFrom-Csv
+        if (-not $rows) {
+            Write-Warn2 "No tool groups found in database; skipping cache prime"
+            return $false
+        }
+
+        # Build lookup and group list
+        $byId = @{}
+        $groups = @()
+        foreach ($row in $rows) {
+            $parent = if ([string]::IsNullOrEmpty($row.parent_group_id)) { $null } else { $row.parent_group_id }
+            $g = [PSCustomObject]@{
+                id        = $row.id
+                name      = $row.name
+                parent_id = $parent
+                path      = $null
+            }
+            $byId[$g.id] = $g
+            $groups += $g
+        }
+
+        # Compute "Parent > Child" paths
+        foreach ($g in $groups) {
+            $parts = New-Object System.Collections.ArrayList
+            [void]$parts.Add($g.name)
+            $current = $g.parent_id
+            $safety = 0
+            while ($current -and $byId.ContainsKey($current) -and $safety -lt 20) {
+                [void]$parts.Insert(0, $byId[$current].name)
+                $current = $byId[$current].parent_id
+                $safety++
+            }
+            $g.path = $parts -join ' > '
+        }
+
+        # Sort by path to match the Lua serializer's ordering
+        $sortedGroups = $groups | Sort-Object path
+
+        # File size for cache-validity check
+        $dbSize = (Get-Item $DbPath).Length
+
+        # Build the Lua-syntax cache content
+        $sb = [System.Text.StringBuilder]::new()
+        [void]$sb.AppendLine("return {")
+        [void]$sb.AppendLine("  db_size = $dbSize,")
+        [void]$sb.AppendLine("  groups = {")
+        foreach ($g in $sortedGroups) {
+            $idStr     = Escape-LuaString $g.id
+            $nameStr   = Escape-LuaString $g.name
+            $parentStr = if ($null -eq $g.parent_id) { 'nil' } else { Escape-LuaString $g.parent_id }
+            $pathStr   = Escape-LuaString $g.path
+            [void]$sb.AppendLine("    { id = $idStr, name = $nameStr, parent_id = $parentStr, path = $pathStr },")
+        }
+        [void]$sb.AppendLine("  },")
+        [void]$sb.AppendLine("}")
+
+        [System.IO.File]::WriteAllText(
+            $CachePath,
+            $sb.ToString(),
+            (New-Object System.Text.UTF8Encoding($false))
+        )
+        return $groups.Count
+    } catch {
+        Write-Warn2 "Failed to prime cache: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+Write-Step "Priming tool-groups cache..."
+
+# Locate a tools.vtdb file. VCarve's schema puts it under either
+# C:\ProgramData\Vectric\... or the Public Documents Vectric Files folder.
+$vtdbPath = $null
+$vtdbRoots = @(
+    "$env:ProgramData\Vectric",
+    "$env:PUBLIC\Documents\Vectric Files",
+    "C:\Users\Public\Documents\Vectric Files"
+)
+foreach ($root in $vtdbRoots) {
+    if (Test-Path $root) {
+        $found = Get-ChildItem -Path $root -Recurse -Filter "tools.vtdb" `
+                    -ErrorAction SilentlyContinue |
+                 Sort-Object LastWriteTime -Descending |
+                 Select-Object -First 1
+        if ($found) {
+            $vtdbPath = $found.FullName
+            break
+        }
+    }
+}
+
+if (-not $vtdbPath) {
+    Write-Warn2 "VCarve tool database not found; cache will be built on first gadget open"
+} elseif (-not (Test-Path $sqliteTarget)) {
+    Write-Warn2 "sqlite3.exe not installed; cache will be built on first gadget open"
+} else {
+    Write-OK "Database: $vtdbPath"
+    $cachePath = Join-Path $gadgetDest "groups_cache.dat"
+    $count = Prime-GroupsCache -SqliteExe $sqliteTarget -DbPath $vtdbPath -CachePath $cachePath
+    if ($count) {
+        Write-OK "Primed cache with $count tool groups"
+    }
+}
+
+# ---------------------------------------------------------------------------
 # 5. Done
 # ---------------------------------------------------------------------------
 
