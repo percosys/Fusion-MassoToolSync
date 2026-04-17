@@ -276,31 +276,32 @@ local function run_gadget()
         cache_fresh = vcarve_db.cache_is_fresh(script_dir, db_path)
     end
 
-    local progress_msg
-    if not db_path then
-        progress_msg = "MASSO Tool Sync -- initializing..."
-    elseif cache_fresh then
-        progress_msg = "MASSO Tool Sync -- loading..."
-    else
-        progress_msg =
-            "MASSO Tool Sync -- rebuilding tool database cache " ..
-            "(takes ~5 seconds; this only runs when VCarve tools have changed)..."
+    -- When we know the cache is stale, warn the user up-front so they
+    -- don't think the gadget is hung during the rebuild. VCarve's
+    -- ProgressBar can't animate while Lua is blocked on io.popen (Lua
+    -- is single-threaded and sqlite3 locks the thread for the whole
+    -- 5-second query), so a spinner isn't achievable. A modal
+    -- DisplayMessageBox is the most reliable way to tell the user
+    -- what's happening and set expectations.
+    if db_path and not cache_fresh then
+        DisplayMessageBox(
+            "MASSO Tool Sync\n\n" ..
+            "Your VCarve tool database has changed since the last sync.\n" ..
+            "Click OK to rebuild the tool group cache.\n\n" ..
+            "This takes about 5 seconds and only needs to run once per change. " ..
+            "The gadget will open automatically when finished."
+        )
     end
 
-    -- VCarve's ProgressBar takes (text, mode). Mode 1 is indeterminate
-    -- (marquee spinner) which is what we want for an operation of
-    -- unknown duration. Creating the progress bar immediately isn't
-    -- always enough to get it painted before a blocking subprocess call,
-    -- so we also poke common update methods (Update, SetText) which may
-    -- force a repaint on some VCarve versions.
+    -- Progress bar is still shown as a best-effort spinner -- on some
+    -- VCarve versions/setups it may render briefly. We don't rely on
+    -- it being visible during the blocking subprocess call.
+    local progress_msg = cache_fresh and "MASSO Tool Sync -- loading..."
+                         or "MASSO Tool Sync -- rebuilding cache..."
     local progress = nil
     if ProgressBar then
         local ok, pb = pcall(ProgressBar, progress_msg, 1)
-        if ok and pb then
-            progress = pb
-            if pb.Update then pcall(function() pb:Update(0) end) end
-            if pb.SetText then pcall(function() pb:SetText(progress_msg) end) end
-        end
+        if ok then progress = pb end
     end
     timer.step("progress bar")
 
