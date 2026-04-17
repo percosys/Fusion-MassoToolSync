@@ -276,26 +276,27 @@ local function run_gadget()
         cache_fresh = vcarve_db.cache_is_fresh(script_dir, db_path)
     end
 
-    -- When we know the cache is stale, warn the user up-front so they
-    -- don't think the gadget is hung during the rebuild. VCarve's
-    -- ProgressBar can't animate while Lua is blocked on io.popen (Lua
-    -- is single-threaded and sqlite3 locks the thread for the whole
-    -- 5-second query), so a spinner isn't achievable. A modal
-    -- DisplayMessageBox is the most reliable way to tell the user
-    -- what's happening and set expectations.
+    -- When the cache is stale, launch an auxiliary PowerShell process
+    -- that shows a "please wait" window while we do the slow sqlite3
+    -- query. VCarve's Lua is single-threaded so a Lua-side progress bar
+    -- can't animate during the blocking subprocess call; by running the
+    -- notification in a separate OS process it stays visible until we
+    -- write a sentinel flag file after the query returns.
+    local rebuild_flag = nil
     if db_path and not cache_fresh then
-        DisplayMessageBox(
-            "MASSO Tool Sync\n\n" ..
-            "Your VCarve tool database has changed since the last sync.\n" ..
-            "Click OK to rebuild the tool group cache.\n\n" ..
-            "This takes about 5 seconds and only needs to run once per change. " ..
-            "The gadget will open automatically when finished."
+        rebuild_flag = script_dir .. "\\rebuild_done.flag"
+        os.remove(rebuild_flag)  -- clear any stale flag from a crashed prior run
+        local notify_script = script_dir .. "\\rebuild_notify.ps1"
+        -- Fire-and-forget: `start /b` detaches the child so os.execute
+        -- returns immediately and we can proceed to the slow work.
+        os.execute(
+            'start /b powershell -NoProfile -WindowStyle Hidden ' ..
+            '-ExecutionPolicy Bypass -File "' .. notify_script .. '" ' ..
+            '-FlagFile "' .. rebuild_flag .. '"'
         )
     end
 
-    -- Progress bar is still shown as a best-effort spinner -- on some
-    -- VCarve versions/setups it may render briefly. We don't rely on
-    -- it being visible during the blocking subprocess call.
+    -- ProgressBar is still shown as a best-effort secondary indicator.
     local progress_msg = cache_fresh and "MASSO Tool Sync -- loading..."
                          or "MASSO Tool Sync -- rebuilding cache..."
     local progress = nil
@@ -324,6 +325,14 @@ local function run_gadget()
         db_status = "Not found (use File source instead)"
     end
     timer.step("list_groups [" .. tostring(vcarve_db.last_cache_status or "?") .. "]")
+
+    -- Signal the "please wait" PowerShell window to close. We write the
+    -- flag file after the slow query returns; the notification process
+    -- polls for the file every 150 ms and closes its dialog on sight.
+    if rebuild_flag then
+        local f = io.open(rebuild_flag, "w")
+        if f then f:write("done") f:close() end
+    end
 
     -- ---- Detect USB drives ----
     local usb_drives = detect_usb_drives()
