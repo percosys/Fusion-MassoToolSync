@@ -199,11 +199,15 @@ Write-Step "Installing gadget to VCarve..."
 # Preserve the tool-groups cache across reinstalls. Regenerating it costs
 # ~5 seconds of sqlite3 subprocess time on Parallels, and the cache is
 # auto-invalidated anyway when the .vtdb file size changes.
-$cacheFile = Join-Path $gadgetDest "groups_cache.lua"
+# Check for both the current name (.dat) and the legacy name (.lua).
 $savedCache = $null
-if (Test-Path $cacheFile) {
-    $savedCache = Get-Content $cacheFile -Raw -Encoding UTF8
-    Write-OK "Preserving groups_cache.lua across reinstall"
+foreach ($name in @("groups_cache.dat", "groups_cache.lua")) {
+    $maybe = Join-Path $gadgetDest $name
+    if (Test-Path $maybe) {
+        $savedCache = Get-Content $maybe -Raw -Encoding UTF8
+        Write-OK "Preserving $name across reinstall"
+        break
+    }
 }
 
 if (Test-Path $gadgetDest) {
@@ -215,9 +219,9 @@ Copy-Item -Path $GadgetSource -Destination $gadgetDest -Recurse -Force
 Write-OK "Gadget copied to: $gadgetDest"
 
 if ($savedCache) {
-    Set-Content -Path (Join-Path $gadgetDest "groups_cache.lua") `
+    Set-Content -Path (Join-Path $gadgetDest "groups_cache.dat") `
                 -Value $savedCache -Encoding UTF8
-    Write-OK "Restored groups_cache.lua"
+    Write-OK "Restored groups_cache.dat"
 }
 
 # ---------------------------------------------------------------------------

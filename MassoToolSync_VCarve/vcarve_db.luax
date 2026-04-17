@@ -402,7 +402,10 @@ local function get_file_size(path)
 end
 
 local function cache_path(gadget_dir)
-    return gadget_dir .. "\\groups_cache.lua"
+    -- Use .dat (not .lua) so VCarve doesn't scan it as a gadget script
+    -- and add a bogus menu entry. The content is still Lua code; we
+    -- load it via loadstring/load which doesn't care about extensions.
+    return gadget_dir .. "\\groups_cache.dat"
 end
 
 local function serialize_groups(groups, db_size)
@@ -468,6 +471,13 @@ M.last_cache_status = "unknown"
 --                   tool_geometry_id TEXT, ...)
 -- Folders are rows where tool_geometry_id IS NULL.
 function M.list_groups(db_path, gadget_dir)
+    -- Clean up a legacy groups_cache.lua from older versions of the
+    -- gadget. That file ended up in the Gadgets menu as a bogus entry
+    -- because VCarve scans every *.lua in the gadget folder.
+    if gadget_dir then
+        os.remove(gadget_dir .. "\\groups_cache.lua")
+    end
+
     -- Try cache first -- this is the hot path and should return in <10ms.
     if gadget_dir then
         local cached = load_cache(gadget_dir, db_path)
