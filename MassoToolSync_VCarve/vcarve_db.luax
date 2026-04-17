@@ -383,14 +383,92 @@ local function get_columns(db_path, sqlite3, table_name)
     return cols
 end
 
+-- ---------------------------------------------------------------------------
+-- Groups cache
+--
+-- sqlite3.exe spawning on Parallels Desktop costs ~5 seconds per subprocess.
+-- Since the tool groups list rarely changes between gadget invocations, we
+-- cache the result in <gadget_dir>\groups_cache.lua and invalidate it only
+-- when the .vtdb file size changes. First run is slow; subsequent runs are
+-- instant.
+-- ---------------------------------------------------------------------------
+
+local function get_file_size(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local size = f:seek("end")
+    f:close()
+    return size
+end
+
+local function cache_path(gadget_dir)
+    return gadget_dir .. "\\groups_cache.lua"
+end
+
+local function serialize_groups(groups, db_size)
+    local lines = { "return {", "  db_size = " .. tostring(db_size) .. ",", "  groups = {" }
+    for _, g in ipairs(groups) do
+        lines[#lines + 1] = string.format(
+            "    { id = %q, name = %q, parent_id = %s, path = %q },",
+            g.id, g.name,
+            g.parent_id and string.format("%q", g.parent_id) or "nil",
+            g.path or g.name
+        )
+    end
+    lines[#lines + 1] = "  },"
+    lines[#lines + 1] = "}"
+    return table.concat(lines, "\n")
+end
+
+local function load_cache(gadget_dir, db_path)
+    local f = io.open(cache_path(gadget_dir), "r")
+    if not f then return nil end
+    local text = f:read("*a")
+    f:close()
+
+    local load_fn = loadstring or load
+    local chunk, err = load_fn(text, "groups_cache")
+    if not chunk then return nil end
+    local ok, data = pcall(chunk)
+    if not ok or type(data) ~= "table" then return nil end
+
+    -- Validate cache against current DB file size
+    local current_size = get_file_size(db_path)
+    if not current_size or data.db_size ~= current_size then return nil end
+    return data.groups
+end
+
+local function save_cache(gadget_dir, db_path, groups)
+    local db_size = get_file_size(db_path)
+    if not db_size then return end
+    local f = io.open(cache_path(gadget_dir), "w")
+    if not f then return end
+    f:write(serialize_groups(groups, db_size))
+    f:close()
+end
+
+--- Invalidate the groups cache (for example after a suspected DB change).
+function M.invalidate_groups_cache(gadget_dir)
+    os.remove(cache_path(gadget_dir))
+end
+
 --- List tool groups/folders in the VCarve database.
 -- Returns array of {id, name, path, parent_id} sorted by path.
+-- Results are cached in the gadget folder and reused when the .vtdb file
+-- size is unchanged, avoiding a multi-second sqlite3 subprocess spawn on
+-- every startup.
 --
 -- VCarve schema (confirmed against V12.5):
 --   tool_tree_entry(id TEXT PK, parent_group_id TEXT, name TEXT,
 --                   tool_geometry_id TEXT, ...)
 -- Folders are rows where tool_geometry_id IS NULL.
 function M.list_groups(db_path, gadget_dir)
+    -- Try cache first -- this is the hot path and should return in <10ms.
+    if gadget_dir then
+        local cached = load_cache(gadget_dir, db_path)
+        if cached then return cached end
+    end
+
     local sqlite3 = find_sqlite3(gadget_dir)
     if not sqlite3 then return {}, "sqlite3.exe not found" end
 
@@ -443,6 +521,12 @@ ORDER BY name
     end
 
     table.sort(groups, function(a, b) return (a.path or a.name) < (b.path or b.name) end)
+
+    -- Persist to the cache so the next gadget invocation is instant.
+    if gadget_dir and #groups > 0 then
+        save_cache(gadget_dir, db_path, groups)
+    end
+
     return groups
 end
 

@@ -71,35 +71,22 @@ end
 -- ---------------------------------------------------------------------------
 
 local function detect_usb_drives()
-    -- One PowerShell call that returns each non-network, non-C: drive
-    -- letter. Under Parallels Desktop, probing unmapped letters or
-    -- Mac shared folders as drive letters (Z: etc.) triggers slow
-    -- network-style probes across the VM boundary -- 23 letters can
-    -- take multiple seconds. This call returns only real local and
-    -- removable drives in ~500ms.
+    -- Scan drive letters D-Q for the MASSO folder via io.open only --
+    -- no subprocess. Each io.open on a missing drive is a single
+    -- filesystem call that returns almost instantly. We intentionally
+    -- skip R-Z because Parallels Desktop typically auto-assigns those
+    -- letters to Mac shared folders, which are network mounts where
+    -- an io.open can take seconds to time out.
     local drives = {}
-    local ps_cmd =
-        'powershell -NoProfile -NonInteractive -Command ' ..
-        '"[System.IO.DriveInfo]::GetDrives() | ' ..
-        'Where-Object { $_.DriveType -eq \'Removable\' -or $_.DriveType -eq \'Fixed\' } | ' ..
-        'Where-Object { $_.Name -ne \'C:\\\' } | ' ..
-        'ForEach-Object { $_.Name }" 2>nul'
-
-    local handle = io.popen(ps_cmd)
-    if handle then
-        local output = handle:read("*a")
-        handle:close()
-        -- Each line is "D:\", "E:\", etc. Check each for MASSO folder.
-        for letter in output:gmatch("(%a):\\") do
-            local root = letter:upper() .. ":\\"
-            local marker = io.open(root .. "MASSO\\Machine Settings\\.", "r")
-            if marker then
-                marker:close()
-                drives[#drives + 1] = {
-                    path = root,
-                    label = letter:upper() .. ": (MASSO detected)",
-                }
-            end
+    for letter in ("DEFGHIJKLMNOPQ"):gmatch(".") do
+        local root = letter .. ":\\"
+        local marker = io.open(root .. "MASSO\\Machine Settings\\.", "r")
+        if marker then
+            marker:close()
+            drives[#drives + 1] = {
+                path = root,
+                label = letter .. ": (MASSO detected)",
+            }
         end
     end
     return drives
