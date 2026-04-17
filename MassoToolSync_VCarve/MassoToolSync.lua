@@ -231,8 +231,9 @@ end
 -- Main gadget logic
 -- ---------------------------------------------------------------------------
 
--- Simple timing helper for diagnosing startup slowness. Writes a log
--- line to timing.log in the gadget folder every time a step completes.
+-- Simple timing helper for diagnosing slow startups. Only surfaces
+-- timings when total() exceeds a threshold so a fast normal startup
+-- stays clean, but a slow one auto-shows the diagnostic breakdown.
 local function make_timer()
     local clock = os.clock
     local start = clock()
@@ -245,11 +246,17 @@ local function make_timer()
                 name, (now - last) * 1000, (now - start) * 1000)
             last = now
         end,
+        total_ms = function()
+            return (clock() - start) * 1000
+        end,
         dump = function()
             return table.concat(log, "\n")
         end,
     }
 end
+
+-- Show the timing breakdown when startup exceeds this many ms.
+local STARTUP_SLOW_THRESHOLD_MS = 500
 
 local function run_gadget()
     local timer = make_timer()
@@ -394,12 +401,19 @@ local function run_gadget()
             .. "</pre>"
     end
 
-    -- Append startup timings to the preview so we can diagnose slow steps.
-    preview_initial = preview_initial ..
-        "<br><br><b>Startup timings</b> (for diagnosing slow startup):<br>" ..
-        "<pre style=\"white-space:pre-wrap;font-size:13px;\">" ..
-        timer.dump() ..
-        "</pre>"
+    -- Only surface the timing breakdown when startup was actually slow.
+    -- A clean startup keeps the Merge Preview area uncluttered; a slow
+    -- one auto-exposes the diagnostic so the user (and we) can see which
+    -- step is misbehaving without having to toggle a debug flag.
+    if timer.total_ms() >= STARTUP_SLOW_THRESHOLD_MS then
+        preview_initial = preview_initial ..
+            "<br><br><b>Startup was slow (" ..
+            string.format("%.0f ms", timer.total_ms()) ..
+            ") -- timing breakdown:</b><br>" ..
+            "<pre style=\"white-space:pre-wrap;font-size:13px;\">" ..
+            timer.dump() ..
+            "</pre>"
+    end
 
     dialog:AddLabelField("PreviewContent", preview_initial)
 
