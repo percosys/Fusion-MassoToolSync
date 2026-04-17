@@ -248,13 +248,16 @@ local function run_gadget()
     local db_path = vcarve_db.get_db_path()
     local db_status
     local tool_groups = {}
+    local schema_dump = nil
     if db_path then
         local groups, group_err = vcarve_db.list_groups(db_path, script_dir)
         if groups and #groups > 0 then
             tool_groups = groups
-            db_status = string.format("Found %d tool groups in: %s", #groups, db_path)
+            db_status = string.format("Found %d tool groups", #groups)
         elseif group_err then
-            db_status = "Found DB but could not list groups: " .. db_path
+            db_status = "Found DB but could not list groups: " .. tostring(group_err)
+            -- Dump schema for diagnosis
+            schema_dump = vcarve_db.dump_schema(db_path, script_dir)
         else
             db_status = "Found: " .. db_path
         end
@@ -352,7 +355,17 @@ local function run_gadget()
     dialog:AddLabelField("UsbStatus", "Select a MASSO USB drive...")
     dialog:AddTextField("BackupPath", saved_backup)
     dialog:AddDirectoryPicker("BrowseBackup", "BackupPath", true)
-    dialog:AddLabelField("PreviewContent", "Select a tool source and USB drive, then click Sync.")
+    local preview_initial = "Select a tool source and USB drive, then click Sync."
+    if schema_dump then
+        -- HTML-escape angle brackets so <tags> don't break rendering
+        local escaped = schema_dump:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+        preview_initial =
+            "<b>Tool group listing failed.</b> Please share this schema dump so it can be fixed:<br><br>"
+            .. "<pre style=\"white-space:pre-wrap;font-size:14px;\">"
+            .. escaped
+            .. "</pre>"
+    end
+    dialog:AddLabelField("PreviewContent", preview_initial)
 
     -- ---- Show the dialog ----
     if not dialog:ShowDialog() then
