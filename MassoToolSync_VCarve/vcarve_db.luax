@@ -482,6 +482,16 @@ function M.invalidate_groups_cache(gadget_dir)
     os.remove(cache_path(gadget_dir))
 end
 
+--- Check whether the groups cache is fresh without loading the full data.
+-- Returns true if a cache file exists and matches the DB's current file
+-- size + change counter. Used to decide whether to show a "rebuilding"
+-- message before the slow sqlite3 query runs.
+function M.cache_is_fresh(gadget_dir, db_path)
+    if not gadget_dir or not db_path then return false end
+    local cached = load_cache(gadget_dir, db_path)
+    return cached ~= nil
+end
+
 -- After list_groups completes this module-level variable records how the
 -- groups were obtained ("cache hit", "cache miss -> saved", "cache miss",
 -- or "no cache attempted"). Used for startup timing diagnostics.

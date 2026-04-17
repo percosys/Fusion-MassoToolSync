@@ -261,21 +261,39 @@ local STARTUP_SLOW_THRESHOLD_MS = 500
 local function run_gadget()
     local timer = make_timer()
 
-    -- Show a progress bar during initialization so the user doesn't
-    -- wonder if the gadget is hung. Each I/O call (sqlite3 query, USB
-    -- scan) takes a beat; without feedback the 300-800ms adds up to
-    -- "is this broken?". ProgressBar auto-closes when its local goes
-    -- out of scope at the end of this function.
+    -- ---- Detect VCarve tool database ----
+    -- (done before the progress bar so we can choose a message that
+    -- tells the user what's about to happen)
+    local db_path = vcarve_db.get_db_path()
+    timer.step("get_db_path")
+
+    -- Pre-flight: is the tool-groups cache fresh? If so, we'll be fast
+    -- (cache hit -> ~5 ms). If not, we're about to do a slow sqlite3
+    -- query (~5 s on Parallels). Show a specific message in each case
+    -- so the user knows what to expect.
+    local cache_fresh = false
+    if db_path then
+        cache_fresh = vcarve_db.cache_is_fresh(script_dir, db_path)
+    end
+
+    local progress_msg
+    if not db_path then
+        progress_msg = "MASSO Tool Sync -- initializing..."
+    elseif cache_fresh then
+        progress_msg = "MASSO Tool Sync -- loading..."
+    else
+        progress_msg =
+            "MASSO Tool Sync -- rebuilding tool database cache " ..
+            "(takes ~5 seconds; this only runs when VCarve tools have changed)..."
+    end
+
     local progress = nil
     if ProgressBar then
-        local ok, pb = pcall(ProgressBar, "MASSO Tool Sync -- initializing...", 0)
+        local ok, pb = pcall(ProgressBar, progress_msg, 0)
         if ok then progress = pb end
     end
     timer.step("progress bar")
 
-    -- ---- Detect VCarve tool database ----
-    local db_path = vcarve_db.get_db_path()
-    timer.step("get_db_path")
     local db_status
     local tool_groups = {}
     local schema_dump = nil
