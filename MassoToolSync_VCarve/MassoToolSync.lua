@@ -406,9 +406,23 @@ local function run_gadget()
 
     dialog:AddLabelField("PreviewContent", preview_initial)
 
+    -- Hidden field used by the "Refresh" button to signal a reload.
+    -- The button's JS sets this to "refresh" before clicking ButtonOK,
+    -- so we can distinguish refresh from a normal sync-to-USB.
+    dialog:AddTextField("Action", "sync")
+
     -- ---- Show the dialog ----
     if not dialog:ShowDialog() then
         return true  -- user cancelled
+    end
+
+    -- Handle the "Refresh" button: invalidate the cache, reopen the
+    -- gadget. The reopen triggers a fresh sqlite3 query so the Tool
+    -- Group dropdown picks up any new/renamed/deleted groups.
+    local action = dialog:GetTextField("Action")
+    if action == "refresh" then
+        vcarve_db.invalidate_groups_cache(script_dir)
+        return run_gadget()
     end
 
     -- ---- Read dialog values ----
