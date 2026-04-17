@@ -295,13 +295,26 @@ function Prime-GroupsCache {
         # Sort by path to match the Lua serializer's ordering
         $sortedGroups = $groups | Sort-Object path
 
-        # File size for cache-validity check
+        # File size + SQLite change counter for cache-validity check.
+        # The change counter at bytes 24-27 of the SQLite header increments
+        # on every write transaction — more reliable than file size alone
+        # since SQLite reuses free pages without changing the file size.
         $dbSize = (Get-Item $DbPath).Length
+        $ccBytes = [byte[]]::new(4)
+        $fs = [System.IO.File]::OpenRead($DbPath)
+        [void]$fs.Seek(24, [System.IO.SeekOrigin]::Begin)
+        [void]$fs.Read($ccBytes, 0, 4)
+        $fs.Close()
+        $changeCounter = ([uint32]$ccBytes[0] -shl 24) -bor `
+                         ([uint32]$ccBytes[1] -shl 16) -bor `
+                         ([uint32]$ccBytes[2] -shl 8) -bor `
+                         [uint32]$ccBytes[3]
 
         # Build the Lua-syntax cache content
         $sb = [System.Text.StringBuilder]::new()
         [void]$sb.AppendLine("return {")
         [void]$sb.AppendLine("  db_size = $dbSize,")
+        [void]$sb.AppendLine("  db_change_counter = $changeCounter,")
         [void]$sb.AppendLine("  groups = {")
         foreach ($g in $sortedGroups) {
             $idStr     = Escape-LuaString $g.id

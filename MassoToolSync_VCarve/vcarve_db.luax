@@ -401,6 +401,21 @@ local function get_file_size(path)
     return size
 end
 
+--- Read the SQLite file change counter from bytes 24-27 of the DB header.
+-- This is a big-endian uint32 that increments on every write transaction,
+-- making it a perfect cache invalidation signal -- more reliable than file
+-- size which stays the same when SQLite reuses free pages.
+local function get_db_change_counter(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    f:seek("set", 24)
+    local bytes = f:read(4)
+    f:close()
+    if not bytes or #bytes < 4 then return nil end
+    local b1, b2, b3, b4 = bytes:byte(1, 4)
+    return b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+end
+
 local function cache_path(gadget_dir)
     -- Use .dat (not .lua) so VCarve doesn't scan it as a gadget script
     -- and add a bogus menu entry. The content is still Lua code; we
@@ -408,8 +423,13 @@ local function cache_path(gadget_dir)
     return gadget_dir .. "\\groups_cache.dat"
 end
 
-local function serialize_groups(groups, db_size)
-    local lines = { "return {", "  db_size = " .. tostring(db_size) .. ",", "  groups = {" }
+local function serialize_groups(groups, db_size, db_change_counter)
+    local lines = {
+        "return {",
+        "  db_size = " .. tostring(db_size) .. ",",
+        "  db_change_counter = " .. tostring(db_change_counter or 0) .. ",",
+        "  groups = {",
+    }
     for _, g in ipairs(groups) do
         lines[#lines + 1] = string.format(
             "    { id = %q, name = %q, parent_id = %s, path = %q },",
@@ -435,18 +455,25 @@ local function load_cache(gadget_dir, db_path)
     local ok, data = pcall(chunk)
     if not ok or type(data) ~= "table" then return nil end
 
-    -- Validate cache against current DB file size
+    -- Validate cache: check both file size AND the SQLite change counter.
+    -- The change counter is the primary signal (increments on every write),
+    -- file size is a secondary catch-all.
     local current_size = get_file_size(db_path)
     if not current_size or data.db_size ~= current_size then return nil end
+    local current_cc = get_db_change_counter(db_path)
+    if current_cc and data.db_change_counter and current_cc ~= data.db_change_counter then
+        return nil
+    end
     return data.groups
 end
 
 local function save_cache(gadget_dir, db_path, groups)
     local db_size = get_file_size(db_path)
     if not db_size then return end
+    local db_cc = get_db_change_counter(db_path)
     local f = io.open(cache_path(gadget_dir), "w")
     if not f then return end
-    f:write(serialize_groups(groups, db_size))
+    f:write(serialize_groups(groups, db_size, db_cc))
     f:close()
 end
 
