@@ -292,13 +292,21 @@ local function run_gadget()
         rebuild_flag = script_dir .. "\\rebuild_done.flag"
         os.remove(rebuild_flag)  -- clear any stale flag from a crashed prior run
         local notify_hta = script_dir .. "\\rebuild_notify.hta"
+
+        -- Pass the flag file path via URL querystring instead of as a
+        -- command-line arg -- location.search is reliable across IE/HTA
+        -- versions; window.commandLine is flaky.
+        -- Convert backslashes to forward slashes for the URL; URL-encode
+        -- spaces and percent signs to be safe.
+        local function url_encode_path(p)
+            return p:gsub("\\", "/"):gsub("%%", "%%25"):gsub(" ", "%%20")
+        end
+        local hta_url = "file:///" .. url_encode_path(notify_hta)
+                     .. "?flag=" .. url_encode_path(rebuild_flag)
+
         -- Fire-and-forget: `start ""` detaches the child so os.execute
         -- returns immediately and we can proceed to the slow work.
-        -- mshta receives the flag file path as the last arg; the HTA
-        -- parses window.commandLine to extract it.
-        os.execute(
-            'start "" mshta.exe "' .. notify_hta .. '" "' .. rebuild_flag .. '"'
-        )
+        os.execute('start "" mshta.exe "' .. hta_url .. '"')
     end
 
     -- ProgressBar is still shown as a best-effort secondary indicator.
