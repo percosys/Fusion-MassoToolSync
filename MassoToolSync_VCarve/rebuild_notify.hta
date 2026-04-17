@@ -1,0 +1,111 @@
+<!--
+  rebuild_notify.hta
+  Lightweight "please wait" window shown during the gadget's cache rebuild.
+  Runs in mshta.exe which starts in ~100-300 ms on Windows (much faster than
+  PowerShell + WinForms which took 1-3 seconds). The HTA polls for a flag
+  file written by the gadget's Lua code and closes as soon as it sees it.
+-->
+<html>
+<head>
+<meta http-equiv="x-ua-compatible" content="IE=edge" />
+<title>MASSO Tool Sync</title>
+<HTA:APPLICATION
+    ID="MassoRebuildNotify"
+    APPLICATIONNAME="MASSO Tool Sync"
+    BORDER="thin"
+    BORDERSTYLE="normal"
+    CAPTION="yes"
+    SCROLL="no"
+    SHOWINTASKBAR="yes"
+    SINGLEINSTANCE="no"
+    SYSMENU="no"
+    MAXIMIZEBUTTON="no"
+    MINIMIZEBUTTON="no"
+    CONTEXTMENU="no"
+    SELECTION="no"
+    WINDOWSTATE="normal"
+/>
+<style>
+    body {
+        font-family: "Segoe UI", sans-serif;
+        font-size: 14px;
+        margin: 0;
+        padding: 24px;
+        text-align: center;
+        background: #f5f5f5;
+    }
+    h2 {
+        margin: 0 0 10px 0;
+        color: #1a5276;
+        font-size: 18px;
+    }
+    p { color: #555; margin: 6px 0; }
+    .spinner {
+        width: 32px;
+        height: 32px;
+        margin: 12px auto;
+        border: 4px solid #ccc;
+        border-top-color: #2980b9;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+<script language="JavaScript">
+// Parse the flag file path from the command line. HTA passes its own command
+// line (including mshta.exe and the HTA path) in window.commandLine. We look
+// for the last argument and use it as the flag file.
+function getFlagFile() {
+    try {
+        var cmd = oMassoRebuildNotify.commandLine || "";
+        // Last "quoted arg" is the flag file path
+        var m = cmd.match(/"([^"]+)"\s*$/);
+        if (m) return m[1];
+    } catch (e) {}
+    return null;
+}
+
+var flagFile = getFlagFile();
+var startMs = new Date().getTime();
+
+function sizeAndCenter() {
+    // ~460x180 window, centered on primary screen
+    window.resizeTo(460, 180);
+    var sw = screen.availWidth  || 1024;
+    var sh = screen.availHeight ||  768;
+    window.moveTo(Math.floor((sw - 460) / 2), Math.floor((sh - 180) / 2));
+}
+
+function poll() {
+    try {
+        if (flagFile) {
+            var fso = new ActiveXObject("Scripting.FileSystemObject");
+            if (fso.FileExists(flagFile)) {
+                try { fso.DeleteFile(flagFile); } catch (e) {}
+                window.close();
+                return;
+            }
+        }
+        // Safety: self-destruct after 60 s so a crashed caller can't leak us
+        if (new Date().getTime() - startMs > 60000) {
+            window.close();
+            return;
+        }
+    } catch (e) {}
+    window.setTimeout(poll, 150);
+}
+
+window.onload = function () {
+    sizeAndCenter();
+    poll();
+};
+</script>
+</head>
+<body>
+    <h2>Rebuilding tool database cache...</h2>
+    <div class="spinner"></div>
+    <p>This window will close automatically when finished.</p>
+</body>
+</html>

@@ -276,23 +276,28 @@ local function run_gadget()
         cache_fresh = vcarve_db.cache_is_fresh(script_dir, db_path)
     end
 
-    -- When the cache is stale, launch an auxiliary PowerShell process
-    -- that shows a "please wait" window while we do the slow sqlite3
-    -- query. VCarve's Lua is single-threaded so a Lua-side progress bar
-    -- can't animate during the blocking subprocess call; by running the
-    -- notification in a separate OS process it stays visible until we
-    -- write a sentinel flag file after the query returns.
+    -- When the cache is stale, launch an auxiliary process that shows
+    -- a "please wait" window while we do the slow sqlite3 query. We
+    -- use mshta.exe (Windows' HTML application host) rather than
+    -- PowerShell because mshta starts in ~100-300 ms whereas a fresh
+    -- PowerShell with WinForms takes 1-3 s -- by the time PowerShell
+    -- finished loading the .NET runtime, sqlite3 was already done and
+    -- the dialog barely flashed. mshta has no runtime to cold-start so
+    -- the dialog appears almost immediately.
+    --
+    -- The HTA polls for a sentinel flag file and closes as soon as it
+    -- appears. Lua writes the flag after list_groups() returns.
     local rebuild_flag = nil
     if db_path and not cache_fresh then
         rebuild_flag = script_dir .. "\\rebuild_done.flag"
         os.remove(rebuild_flag)  -- clear any stale flag from a crashed prior run
-        local notify_script = script_dir .. "\\rebuild_notify.ps1"
-        -- Fire-and-forget: `start /b` detaches the child so os.execute
+        local notify_hta = script_dir .. "\\rebuild_notify.hta"
+        -- Fire-and-forget: `start ""` detaches the child so os.execute
         -- returns immediately and we can proceed to the slow work.
+        -- mshta receives the flag file path as the last arg; the HTA
+        -- parses window.commandLine to extract it.
         os.execute(
-            'start /b powershell -NoProfile -WindowStyle Hidden ' ..
-            '-ExecutionPolicy Bypass -File "' .. notify_script .. '" ' ..
-            '-FlagFile "' .. rebuild_flag .. '"'
+            'start "" mshta.exe "' .. notify_hta .. '" "' .. rebuild_flag .. '"'
         )
     end
 
