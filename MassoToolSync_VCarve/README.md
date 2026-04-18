@@ -4,6 +4,8 @@
 
 Version 0.1.0
 
+![MASSO Tool Sync for VCarve Pro dialog](../screenshots/vcarve-dialog.png)
+
 ## Features
 
 - **One-click sync** from VCarve Pro tool database to MASSO G3 `.htg` tool table files

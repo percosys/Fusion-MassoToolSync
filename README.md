@@ -11,7 +11,9 @@ Two separate integrations live in this repo, sharing the same `.htg` binary form
 
 Both integrations produce the same `.htg` binary file that the MASSO G3 controller reads, so you can pick whichever CAD tool matches your workflow — or use both.
 
-![MASSO Tool Sync Dialog](screenshots/dialog.png)
+|  Fusion 360 add-in  |  VCarve Pro gadget  |
+| :---: | :---: |
+| ![Fusion 360 dialog](screenshots/dialog.png) | ![VCarve Pro dialog](screenshots/vcarve-dialog.png) |
 
 ## Shared Features
 
