@@ -454,12 +454,20 @@ local function load_cache(gadget_dir, db_path)
     if not chunk then return nil end
     local ok, data = pcall(chunk)
     if not ok or type(data) ~= "table" then return nil end
-
-    -- Always trust the cache if it parses. The user clicks the Refresh
-    -- button when they want fresh data. Auto-invalidation via file size
-    -- or SQLite change counter caused a 5-second rebuild on every open
-    -- after ANY tool DB edit, which made the gadget feel broken.
     if not data.groups or #data.groups == 0 then return nil end
+
+    -- Auto-invalidate when the DB changes. We check both file size and
+    -- the SQLite file change counter (bytes 24-27 of the header) so
+    -- adding groups invalidates the cache even when SQLite reuses free
+    -- pages and the overall file size stays the same.
+    local current_size = get_file_size(db_path)
+    if current_size and data.db_size and data.db_size ~= current_size then
+        return nil
+    end
+    local current_cc = get_db_change_counter(db_path)
+    if current_cc and data.db_change_counter and current_cc ~= data.db_change_counter then
+        return nil
+    end
     return data.groups
 end
 

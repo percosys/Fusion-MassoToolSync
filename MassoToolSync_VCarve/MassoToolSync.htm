@@ -139,20 +139,9 @@
         <tr>
             <td class="label">Tool Group:</td>
             <td class="field">
-                <table style="width:100%;border-collapse:collapse;"><tr>
-                    <td style="padding:0;">
-                        <select id="ToolGroup">
-                            <option value="">-- all tools --</option>
-                        </select>
-                    </td>
-                    <td style="padding:0 0 0 8px;width:1%;white-space:nowrap;">
-                        <button type="button" id="RefreshGroupsBtn"
-                                title="Re-read tool groups from the VCarve database (takes ~5 seconds)"
-                                style="padding:7px 14px;font-size:14px;border:1px solid #888;border-radius:3px;background:#e8e8e8;cursor:pointer;white-space:nowrap;">
-                            &#x21bb; Refresh
-                        </button>
-                    </td>
-                </tr></table>
+                <select id="ToolGroup">
+                    <option value="">-- all tools --</option>
+                </select>
             </td>
         </tr>
         <tr>
@@ -168,24 +157,6 @@
             </td>
         </tr>
     </table>
-
-    <!-- Hidden field signals which button closed the dialog. The Refresh
-         button sets this to "refresh" then clicks ButtonOK so Lua can
-         distinguish refresh from a normal sync. -->
-    <input type="text" id="Action" value="sync" style="display:none" />
-    <script>
-    (function () {
-        var btn = document.getElementById('RefreshGroupsBtn');
-        if (btn) {
-            btn.onclick = function () {
-                var action = document.getElementById('Action');
-                if (action) action.value = 'refresh';
-                var ok = document.getElementById('ButtonOK');
-                if (ok) ok.click();
-            };
-        }
-    })();
-    </script>
 </div>
 
 <!-- MASSO Configuration -->
