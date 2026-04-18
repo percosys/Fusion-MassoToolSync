@@ -1,188 +1,186 @@
 # MASSO Tool Sync
 
-**Fusion 360 add-in that syncs tool libraries directly to your MASSO G3 CNC controller's USB drive.**
+**Sync your CAD tool libraries directly to a MASSO G3 CNC controller's USB drive.**
 
-Version 0.1.0
+Two separate integrations live in this repo, sharing the same `.htg` binary format, merge logic, and backup behaviour:
+
+| Platform | Folder | Language | Status |
+|---|---|---|---|
+| **Fusion 360 add-in** | [`MassoToolSync/`](MassoToolSync/) | Python | macOS + Windows |
+| **VCarve Pro gadget** | [`MassoToolSync_VCarve/`](MassoToolSync_VCarve/) | Lua | Windows only (VCarve is Windows-only) |
+
+Both integrations produce the same `.htg` binary file that the MASSO G3 controller reads, so you can pick whichever CAD tool matches your workflow — or use both.
 
 ![MASSO Tool Sync Dialog](screenshots/dialog.png)
 
-## Features
+## Shared Features
 
-- **One-click sync** from Fusion 360 tool libraries to MASSO G3 `.htg` tool table files
-- **Direct USB write** — select your MASSO USB drive, and the add-in writes the tool table in place
-- **Automatic backups** — zips the existing Machine Settings folder before every write
-- **Auto-detect firmware** — finds the correct `.htg` filename on the USB automatically
-- **Live merge preview** — see exactly what will change before committing
-- **Smart merge** — preserves Z offsets from probed tools, detects added/updated/replaced/unchanged tools
-- **Auto tool numbering** — assigns sequential T1-T100 numbers (MASSO's max; T101-T104 are reserved for multi-spindle heads) for manufacturer libraries that ship with all tools set to T1
-- **Unit conversion** — automatically converts between inch and metric tool libraries
-- **Fusion library sync** — optionally creates a MASSO-synced copy of the library in Fusion with updated tool numbers so posted G-code matches
-- **Slot assignment** — configurable: match tool number or leave unassigned
-- **Z offset modes** — zero all, preserve existing, or use Fusion body length
-- **Auto-eject USB** — optionally ejects the USB drive when done (macOS)
-- **Cross-platform** — works on macOS and Windows
+- **One-click sync** to MASSO G3 `.htg` tool-table files
+- **Direct USB write** — the integration writes the tool table to the USB in place
+- **Automatic backups** — zips the existing `Machine Settings/` folder before every write
+- **Auto-detect firmware** — finds the correct `.htg` filename (v4.x or v5.x)
+- **Smart merge** — preserves probed Z offsets, detects added/updated/replaced/unchanged tools, reports skipped ones
+- **Auto tool numbering** — assigns sequential T1–T100 (MASSO's usable range; T0 + T101–T104 are reserved)
+- **Unit conversion** — handles mm ↔ inches automatically
+- **Z offset modes** — zero all, preserve existing, or use tool body length
+- **Slot assignment** — match tool number, or leave unassigned
 
-## Installation
-
-### Quick Install (Recommended)
+## Install — Fusion 360 (macOS + Windows)
 
 **macOS:**
 ```bash
-git clone https://github.com/percosys/Fusion-MassoToolSync.git
-cd Fusion-MassoToolSync
+git clone https://github.com/percosys/masso-tool-sync.git
+cd masso-tool-sync
 ./install.sh
 ```
 
 **Windows:**
 ```cmd
-git clone https://github.com/percosys/Fusion-MassoToolSync.git
-cd Fusion-MassoToolSync
+git clone https://github.com/percosys/masso-tool-sync.git
+cd masso-tool-sync
 install.bat
 ```
 
-### Manual Install
+The install script copies `MassoToolSync/` into your Fusion 360 AddIns directory and enables Run-on-Startup. Full docs: see the feature walkthrough below.
 
-1. Download or clone this repository
-2. Copy the `MassoToolSync/` folder (the inner one containing `MassoToolSync.py`) to your Fusion 360 Add-Ins directory:
-   - **macOS:** `~/Library/Application Support/Autodesk/Autodesk Fusion 360/API/AddIns/`
-   - **Windows:** `%APPDATA%\Autodesk\Autodesk Fusion 360\API\AddIns\`
-3. Restart Fusion 360
-4. Go to **Tools > Scripts and Add-Ins > Add-Ins** tab
-5. Find **MassoToolSync** and click **Run**
-6. Check **Run on Startup** if you want it to load automatically
+## Install — VCarve Pro (Windows)
 
-## Usage
+```cmd
+git clone https://github.com/percosys/masso-tool-sync.git
+cd masso-tool-sync
+install-vcarve.bat
+```
 
-### Before You Start — Back Up Your MASSO Controller
+The installer auto-detects your VCarve Pro / Aspire gadgets folder, downloads `sqlite3.exe` from sqlite.org, and copies the gadget into place. Full docs in [`MassoToolSync_VCarve/README.md`](MassoToolSync_VCarve/README.md).
 
-Before using this add-in for the first time, create a backup of your MASSO controller settings to USB:
+Restart VCarve Pro, then open **Gadgets → MassoToolSync**.
+
+## Before You Start — Back Up Your MASSO Controller
+
+Both integrations require the `MASSO/Machine Settings/` folder on the USB. It's only created by the MASSO controller's "Save to file" function:
 
 1. Insert a USB drive into the MASSO controller
-2. On the MASSO touchscreen: **F1 Setup > Save & Load Calibration Settings > Save to file**
-3. This creates the `MASSO/Machine Settings/` folder on the USB with your current tool table and machine settings
-4. Keep this USB — the add-in will read from it, back it up automatically, and write the updated tool table to it
+2. On the MASSO touchscreen: **F1 Setup → Save & Load Calibration Settings → Save to file**
+3. Keep that USB — the add-in / gadget will read from it, back it up, and write the new tool table to it
 
-> **Important:** The add-in requires the `MASSO/Machine Settings/` folder structure on the USB. This is only created by the MASSO controller's "Save to file" function.
+## Fusion 360 Usage
 
 ### 1. Open the Add-in
 
-Navigate to **Manufacture > Milling** tab. You'll find the **MASSO Tool Sync** button in the **MASSO** panel on the toolbar. Click it to open the sync dialog.
-
-The button is also available in the **Design** workspace under **Add-Ins**.
+Navigate to **Manufacture → Milling**. You'll find the **MASSO Tool Sync** button in the **MASSO** panel on the toolbar. It's also in **Design → Add-Ins**.
 
 ### 2. Select a Tool Library
 
-Choose **Fusion Library** to pick from your local Fusion 360 tool libraries, or **File on Disk** to browse to a `.tools` or `.json` file.
+**Fusion Library** to pick from your local Fusion 360 tool libraries, or **File on Disk** to browse to a `.tools` or `.json` file.
 
 ### 3. Configure MASSO Settings
 
 | Option | Description |
 |--------|-------------|
-| **MASSO Units** | Set to match your controller (mm or inches) |
-| **Tool Numbering** | Auto-assign T1-T100 sequentially, or use the Fusion post-process numbers |
-| **Z Offset Mode** | **Zero all** (safest, re-probe everything), **Preserve MASSO** (keep probed offsets), or **Use Fusion body length** (rough starting offset from tool geometry) |
-| **Slot Assignment** | **Match tool number** (T1=Slot 1) or **Leave unassigned** (set manually on controller) |
+| **MASSO Units** | Match your controller (mm / inches) |
+| **Tool Numbering** | Auto-assign T1–T100, or use Fusion post-process numbers |
+| **Z Offset Mode** | **Zero all**, **Preserve MASSO**, or **Use Fusion body length** |
+| **Slot Assignment** | **Match tool number** or **Leave unassigned** |
 
 ### 4. Select MASSO USB Drive
 
-Click **Select USB Drive** and browse to your MASSO USB drive. The add-in will look for the `MASSO/Machine Settings/` folder and show a status indicator:
-- **Green** — Found existing tool table (will merge)
-- **Orange** — No existing tool table (will create new)
-- **Red** — MASSO folder structure not found
+Browse to your MASSO USB drive. The add-in checks for `MASSO/Machine Settings/` and shows a status indicator (green / orange / red).
 
 ### 5. Review and Sync
 
-The **Merge Preview** shows exactly what will happen:
-- **ADDED** — new tools going into empty slots (Z=0, must probe)
-- **UPDATED** — existing tools with changed diameter, Z offset, or slot
-- **REPLACED** — different tool at the same slot number
-- **UNCHANGED** — identical tools, no changes needed
-- **SKIPPED** — tools that couldn't be assigned (overflow beyond T104, number 0, etc.)
-
-Click **OK** to:
-1. Back up the existing Machine Settings to a timestamped zip
-2. Write the new tool table to the USB
-3. Optionally create a synced Fusion library with updated tool numbers
-4. Optionally eject the USB drive
+The **Merge Preview** shows exactly what will happen — ADDED / UPDATED / REPLACED / UNCHANGED / SKIPPED. Click OK to back up, write, and optionally sync back to Fusion.
 
 ### 6. Load on MASSO Controller
 
-1. Plug the USB into your MASSO controller
-2. **F1 Setup > Save & Load Calibration Settings > Load from file**
-3. Reboot the MASSO controller
+1. Plug USB into your MASSO controller
+2. **F1 Setup → Save & Load Calibration Settings → Load from file**
+3. Reboot the controller
 4. Probe Z on any new or changed tools
+
+## VCarve Pro Usage
+
+See [`MassoToolSync_VCarve/README.md`](MassoToolSync_VCarve/README.md) for the full VCarve-specific walkthrough, including how the Tool Group picker and sqlite3-backed tool database integration work.
 
 ## Troubleshooting
 
-**Add-in doesn't appear in toolbar:**
+**Fusion add-in doesn't appear in toolbar:**
 - Make sure you're in the **Manufacture** workspace, **Milling** tab
-- Go to Scripts & Add-Ins (Shift+S), find MassoToolSync, click Run
-- Check the **Run on Startup** checkbox for automatic loading
+- Go to Scripts & Add-Ins (Shift+S), find **MassoToolSync**, click Run
+- Check **Run on Startup** for automatic loading
+
+**VCarve gadget doesn't appear in menu:**
+- Make sure you have VCarve Pro (gadgets aren't supported in the desktop/non-Pro edition)
+- Restart VCarve Pro after installing (gadgets menu is built at startup)
 
 **"MASSO/Machine Settings/ not found" error:**
-- Make sure you selected the USB drive root, not a subfolder
-- The USB must contain a `MASSO/Machine Settings/` folder (created by the MASSO controller when you first back up settings)
+- Select the USB drive root, not a subfolder
+- The USB must contain a `MASSO/Machine Settings/` folder (created by the MASSO controller's "Save to file")
 
 **Tools show as blank on MASSO controller:**
-- Make sure you loaded the file: F1 Setup > Save & Load Calibration Settings > Load from file
+- Load the file: **F1 Setup → Save & Load Calibration Settings → Load from file**
 - Reboot the controller after loading
 
-**CRC errors when reading USB file:**
-- This can happen if the MASSO controller wrote tools with its own CRC variant. The add-in handles this automatically and preserves the original data.
-
-**Preview doesn't update:**
-- Try changing another dropdown to trigger a refresh
-- If the issue persists, close and reopen the dialog
-
-## Development
-
-The add-in is built on the `fusion2masso` Python library which handles the binary `.htg` format, Fusion JSON parsing, and merge logic. The library is pure Python stdlib with no external dependencies.
-
-### Project Structure
+## Project Structure
 
 ```
-MassoToolSync/              # Fusion 360 add-in
-  MassoToolSync.py          # Entry point (run/stop)
-  MassoToolSync.manifest    # Fusion add-in manifest
-  config.py                 # Configuration constants + VERSION
-  command.py                # Dialog UI and handlers
-  lib_browser.py            # Fusion CAM library enumeration
-  event_utils.py            # Handler utility
-  resources/                # Toolbar icons (16/32/64px)
-  fusion2masso/             # Core library
-    masso.py                # .htg binary reader/writer
-    fusion.py               # Fusion .tools/.json parser
-    mapping.py              # Merge logic
-    fusion_sync.py          # Push libraries back to Fusion via adsk.cam
+masso-tool-sync/
+  MassoToolSync/              # Fusion 360 add-in (Python)
+    MassoToolSync.py          # Entry point
+    MassoToolSync.manifest    # Fusion add-in manifest
+    config.py                 # Constants + VERSION
+    command.py                # Dialog UI and handlers
+    lib_browser.py            # Fusion CAM library enumeration
+    fusion2masso/             # Core library (pure Python stdlib)
+      masso.py                # .htg binary reader/writer
+      fusion.py               # Fusion .tools/.json parser
+      mapping.py              # Merge logic
+      fusion_sync.py          # Push libraries back to Fusion
+
+  MassoToolSync_VCarve/       # VCarve Pro gadget (Lua)
+    MassoToolSync.lua         # Entry point and orchestration
+    MassoToolSync.htm         # HTML dialog
+    config.luax               # Constants
+    crc32.luax                # Pure-Lua CRC32
+    masso_htg.luax            # .htg binary reader/writer
+    merge.luax                # Merge logic
+    vcarve_db.luax            # VCarve SQLite DB reader
+    resources/                # Bundled sqlite3.exe goes here
+
+  install.sh / install.bat    # Fusion installers
+  install-vcarve.bat          # VCarve installer (launches install.ps1)
+  install.ps1                 # VCarve installer (downloads sqlite3, primes cache)
+  dev/                        # Standalone CLI + test suite
 ```
 
-### Running Tests
+## MASSO .htg Binary Format
 
-The core library has a test suite:
-
-```bash
-pip install pytest
-python -m pytest tests/ -v
-```
-
-### MASSO .htg Binary Format
-
-The `.htg` file is 6720 bytes = 105 records of 64 bytes each. Record 0 is reserved (dry-run entry). Each record:
+The `.htg` file is 6,720 bytes = 105 records of 64 bytes each. Record 0 is reserved (dry-run entry); T1–T100 are usable; T101–T104 are reserved for multi-spindle heads.
 
 | Offset | Length | Type | Field |
 |--------|--------|------|-------|
-| 0 | 40 | ASCII | Tool name |
+| 0 | 40 | ASCII | Tool name (null-terminated) |
 | 40 | 4 | float32 LE | Z offset |
 | 44 | 8 | zeros | Reserved |
 | 52 | 4 | float32 LE | Diameter |
 | 56 | 2 | uint16 **BE** | Slot (0x00FF = empty) |
 | 58 | 2 | zeros | Reserved |
-| 60 | 4 | uint32 LE | CRC32 of bytes 0-59 |
+| 60 | 4 | uint32 LE | CRC32 of bytes 0–59 |
+
+## Development
+
+The Fusion core library lives in `MassoToolSync/fusion2masso/` and is pure Python stdlib. A standalone test suite lives under `dev/`:
+
+```bash
+pip install pytest
+python -m pytest dev/tests/ -v
+```
+
+The VCarve gadget is pure Lua + HTML and uses only the Lua standard library plus VCarve's HTML_Dialog API.
 
 ## Acknowledgments
 
-The MASSO `.htg` binary format was reverse-engineered with the help of the [MASSO community forum](https://forums.masso.com.au/threads/convert-cam-tool-libraries-into-masso-tool-file.4563/).
+The MASSO `.htg` binary format was reverse-engineered with help from the [MASSO community forum](https://forums.masso.com.au/threads/convert-cam-tool-libraries-into-masso-tool-file.4563/).
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
+GNU General Public License v3.0 — see [LICENSE](LICENSE).

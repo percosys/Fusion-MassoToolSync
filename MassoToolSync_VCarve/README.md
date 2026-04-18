@@ -190,7 +190,7 @@ The `.htg` file is 6720 bytes = 105 records of 64 bytes each. Record 0 is reserv
 
 ## Acknowledgments
 
-- Based on [Fusion-MassoToolSync](https://github.com/percosys/Fusion-MassoToolSync) by percosys
+- Shares its core merge logic and `.htg` binary format work with the sibling [Fusion 360 add-in](../MassoToolSync) in the same [masso-tool-sync](https://github.com/percosys/masso-tool-sync) repository
 - MASSO `.htg` binary format reverse-engineered with help from the [MASSO community forum](https://forums.masso.com.au/threads/convert-cam-tool-libraries-into-masso-tool-file.4563/)
 - Built for the [Vectric VCarve Pro](https://www.vectric.com/products/vcarve-pro) gadget platform
 
